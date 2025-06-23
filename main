@@ -1,6 +1,6 @@
 """
-Final Ontology-Driven Multi-Objective Optimization Framework v6.0
-修复所有专家指出的问题，支持顶刊发表
+Expert-Enhanced Ontology-Driven Multi-Objective Optimization Framework v6.1
+性能优化版本 - 添加缓存和预计算以加速运行
 """
 
 import pandas as pd
@@ -24,6 +24,8 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import seaborn as sns
 import warnings
+from functools import lru_cache
+import hashlib
 
 warnings.filterwarnings('ignore')
 
@@ -35,17 +37,50 @@ logger = logging.getLogger(__name__)
 RDTCO = Namespace("http://example.org/rdtco-maint#")
 EX = Namespace("http://example.org/instances#")
 
+# ============== HYPERPARAMETERS SECTION ==============
+# 以下是可调整的超参数
+HYPERPARAMETERS = {
+    # ===== 优化算法参数 =====
+    'pop_size': 100,                    # 种群大小 (50-200)
+    'n_generations': 10,                 # 进化代数 (10-200)
+    'crossover_prob': 0.9,               # 交叉概率 (0.7-0.95)
+    'crossover_eta': 15,                 # SBX交叉分布指数 (10-30)
+    'mutation_eta': 20,                  # 多项式变异分布指数 (10-50)
+    
+    # ===== 目标函数权重参数 =====
+    'sensor_error_weight': 0.3,          # β - 传感器误差影响权重 (0.1-0.5)
+    'lod_influence_weight': 0.4,         # γ - LOD影响权重 (0.2-0.6)
+    
+    # ===== 约束惩罚参数 =====
+    'constraint_penalty': 1e6,           # 约束违反惩罚系数 (1e5-1e7)
+    'soft_crew_penalty': 50000,          # 超编人员惩罚 (10000-100000)
+    'winter_cost_factor': 1.3,           # 冬季作业成本增加系数 (1.1-1.5)
+    'urgent_schedule_factor': 1.5,       # 紧急调度成本系数 (1.2-2.0)
+    
+    # ===== 缓存参数 =====
+    'cache_size': 10000,                 # LRU缓存大小 (1000-50000)
+    'enable_caching': True,              # 是否启用缓存
+    
+    # ===== 归一化参数 =====
+    'normalization_ranges': {
+        'cost': {'min': 500000, 'max': 24000000},
+        'recall': {'min': 0.0, 'max': 0.3},
+        'latency': {'min': 0.1, 'max': 300.0},
+        'disruption': {'min': 0.0, 'max': 500.0}
+    }
+}
+# ================================================
 
 # Load configuration
 def load_config():
     """Load configuration from file or use defaults"""
     default_config = {
-        'road_network_length_km': 100,  # Reduced for feasibility
+        'road_network_length_km': 100,
         'planning_horizon_years': 10,
-        'budget_cap_usd': 20000000,  # $20M
+        'budget_cap_usd': 20000000,
         'daily_wage_per_person': 1500,
-        'min_recall_threshold': 0.75,  # Relaxed to 0.75
-        'max_latency_seconds': 120,  # Relaxed to 120s
+        'min_recall_threshold': 0.75,
+        'max_latency_seconds': 120,
         'data_retention_years': 3
     }
 
@@ -66,9 +101,11 @@ def load_config():
 
 CONFIG = load_config()
 
+# 全局缓存字典，用于存储本体查询结果
+ONTOLOGY_CACHE = {}
 
 class EnhancedOntologyPopulator:
-    """增强的本体填充器：支持新的数据属性"""
+    """增强的本体填充器：支持新的数据属性和缓存"""
 
     def __init__(self, base_ontology_path=None):
         self.g = Graph()
@@ -123,8 +160,8 @@ class EnhancedOntologyPopulator:
         self.g.add((RDTCO.DigitalTwinConfiguration, RDF.type, OWL.Class))
 
     def populate_from_csvs(self, sensor_csv, algorithm_csv, infrastructure_csv, cost_csv):
-        """从CSV文件填充本体"""
-        logger.info("Loading CSV files...")
+        """从CSV文件填充本体，并构建缓存"""
+        logger.info("Loading CSV files and building cache...")
 
         # Load data with enhanced attributes
         sensors_df = pd.read_csv(sensor_csv)
@@ -135,14 +172,54 @@ class EnhancedOntologyPopulator:
         # Add synthetic data for missing algorithm attributes
         self._enhance_algorithm_data(algorithms_df)
 
-        # Populate components
+        # Populate components and build cache
         self._populate_sensors(sensors_df)
         self._populate_algorithms(algorithms_df)
         self._populate_infrastructure(infrastructure_df)
         self._populate_cost_benefit_data(costs_df)
+        
+        # 构建查询缓存
+        self._build_query_cache()
 
-        logger.info("Successfully populated enhanced ontology")
+        logger.info("Successfully populated enhanced ontology with cache")
         return self.g
+    
+    def _build_query_cache(self):
+        """预构建常用查询的缓存"""
+        global ONTOLOGY_CACHE
+        logger.info("Building ontology query cache...")
+        
+        # 缓存所有传感器属性
+        sensor_query = """
+        PREFIX rdtco: <http://example.org/rdtco-maint#>
+        PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+        
+        SELECT ?sensor ?prop ?value WHERE {
+            ?sensor rdf:type/rdfs:subClassOf* rdtco:SensorSystem .
+            ?sensor ?prop ?value .
+        }
+        """
+        
+        for row in self.g.query(sensor_query):
+            cache_key = f"{row.sensor}#{str(row.prop).split('#')[-1]}"
+            ONTOLOGY_CACHE[cache_key] = float(row.value) if isinstance(row.value, Literal) and row.value.datatype in [XSD.float, XSD.double] else row.value
+            
+        # 缓存算法属性
+        algo_query = """
+        PREFIX rdtco: <http://example.org/rdtco-maint#>
+        PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+        
+        SELECT ?algo ?prop ?value WHERE {
+            ?algo rdf:type/rdfs:subClassOf* rdtco:Algorithm .
+            ?algo ?prop ?value .
+        }
+        """
+        
+        for row in self.g.query(algo_query):
+            cache_key = f"{row.algo}#{str(row.prop).split('#')[-1]}"
+            ONTOLOGY_CACHE[cache_key] = float(row.value) if isinstance(row.value, Literal) and row.value.datatype in [XSD.float, XSD.double] else row.value
+            
+        logger.info(f"Cached {len(ONTOLOGY_CACHE)} ontology properties")
 
     def _enhance_algorithm_data(self, df):
         """为算法添加处理成本等缺失的属性"""
@@ -387,7 +464,7 @@ class DecisionVariableMapper:
 
 
 class FinalFitnessEvaluator:
-    """最终版适应度评估器：修复所有专家指出的问题"""
+    """最终版适应度评估器：修复所有专家指出的问题，添加缓存优化"""
 
     def __init__(self, ontology_graph, shacl_graph, mapper):
         self.g = ontology_graph
@@ -401,15 +478,15 @@ class FinalFitnessEvaluator:
         self.daily_wage_per_person = self.config['daily_wage_per_person']
         self.budget_cap = self.config['budget_cap_usd']
 
-        # Fix: Update normalization parameters to match actual ranges
-        self.normalization_params = {
-            'cost': {'min': 500000, 'max': self.budget_cap * 1.2},
-            'recall': {'min': 0.0, 'max': 0.3},  # MODIFIED: Was 0.1, now 0.3
-            'latency': {'min': 0.1, 'max': 300.0},
-            'disruption': {'min': 0.0, 'max': 500.0}
-        }
+        # 使用超参数中的归一化范围
+        self.normalization_params = HYPERPARAMETERS['normalization_ranges']
+        
+        # 评估结果缓存
+        self._evaluation_cache = {}
+        self._cache_hits = 0
+        self._cache_misses = 0
 
-        logger.info("Initialized FinalFitnessEvaluator with fixed normalization")
+        logger.info("Initialized FinalFitnessEvaluator with caching")
 
     def _normalize(self, value, min_val, max_val):
         """归一化到0-1范围"""
@@ -418,8 +495,20 @@ class FinalFitnessEvaluator:
         normalized = (value - min_val) / (max_val - min_val)
         return np.clip(normalized, 0.0, 1.0)
 
-    def evaluate(self, x):
-        """评估单个解的适应度（归一化版本）"""
+    @lru_cache(maxsize=HYPERPARAMETERS['cache_size'])
+    def evaluate(self, x_tuple):
+        """评估单个解的适应度（缓存版本）"""
+        x = np.array(x_tuple)
+        
+        # 生成缓存键
+        cache_key = hashlib.md5(x.tobytes()).hexdigest()
+        
+        if HYPERPARAMETERS['enable_caching'] and cache_key in self._evaluation_cache:
+            self._cache_hits += 1
+            return self._evaluation_cache[cache_key]
+        
+        self._cache_misses += 1
+        
         config = self.mapper.decode_solution(x)
 
         # Calculate raw objective values
@@ -438,7 +527,12 @@ class FinalFitnessEvaluator:
         f4 = self._normalize(f4_raw, self.normalization_params['disruption']['min'],
                              self.normalization_params['disruption']['max'])
 
-        return np.array([f1, f2, f3, f4])
+        result = np.array([f1, f2, f3, f4])
+        
+        if HYPERPARAMETERS['enable_caching']:
+            self._evaluation_cache[cache_key] = result
+            
+        return result
 
     def get_raw_objectives(self, x):
         """获取原始（非归一化）的目标值"""
@@ -450,49 +544,37 @@ class FinalFitnessEvaluator:
         f4_raw = self._calculate_traffic_disruption_final(config)
 
         return np.array([f1_raw, f2_raw, f3_raw, f4_raw])
+    
+    def _get_cached_property(self, uri, prop_name, default=0):
+        """从缓存获取属性值"""
+        cache_key = f"{uri}#{prop_name}"
+        if cache_key in ONTOLOGY_CACHE:
+            return ONTOLOGY_CACHE[cache_key]
+        return default
 
     def _calculate_total_cost_final(self, config):
         """
-        最终版成本计算：修复B2和C1问题
+        最终版成本计算：使用缓存优化
         """
         total_initial_cost = 0
         total_operational_cost_per_year = 0
 
-        # 1. Get sensor information
-        sensor_query = f"""
-        SELECT ?initial ?operational ?coverage ?dataRate WHERE {{
-            <{config['sensor']}> rdtco:hasInitialCost ?initial .
-            OPTIONAL {{ <{config['sensor']}> rdtco:hasOperationalCostPerDay ?operational }}
-            OPTIONAL {{ <{config['sensor']}> rdtco:hasCoverageEfficiency ?coverage }}
-            OPTIONAL {{ <{config['sensor']}> rdtco:hasDataRate ?dataRate }}
-        }}
-        """
-
-        coverage_efficiency = 1.0
-        sensor_operational_cost_per_day = 0
-        data_rate_gb_per_km = 1.0
-        sensor_initial_cost = 0
-
-        for row in self.g.query(sensor_query, initNs={'rdtco': RDTCO}):
-            if row.initial:
-                sensor_initial_cost = float(row.initial)
-            if row.operational:
-                sensor_operational_cost_per_day = float(row.operational)
-            if row.coverage:
-                coverage_efficiency = max(float(row.coverage), 0.1)
-            if row.dataRate:
-                data_rate_gb_per_km = float(row.dataRate)
+        # 1. 从缓存获取传感器信息
+        sensor_initial_cost = self._get_cached_property(config['sensor'], 'hasInitialCost', 0)
+        sensor_operational_cost_per_day = self._get_cached_property(config['sensor'], 'hasOperationalCostPerDay', 0)
+        coverage_efficiency = self._get_cached_property(config['sensor'], 'hasCoverageEfficiency', 1.0)
+        data_rate_gb_per_km = self._get_cached_property(config['sensor'], 'hasDataRate', 1.0)
 
         # 2. Calculate equipment multiplier with upper limit
         daily_coverage_requirement = self.road_network_length / config['inspection_cycle']
-        equipment_multiplier = min(np.ceil(daily_coverage_requirement / coverage_efficiency), 10)
+        equipment_multiplier = min(np.ceil(daily_coverage_requirement / max(coverage_efficiency, 0.1)), 10)
 
         # Apply multiplier to initial cost
         total_initial_cost += sensor_initial_cost * equipment_multiplier
 
         # 3. Calculate actual working days
         inspections_per_year = 365 / config['inspection_cycle']
-        days_per_inspection = self.road_network_length / coverage_efficiency
+        days_per_inspection = self.road_network_length / max(coverage_efficiency, 0.1)
         total_work_days_per_year = min(days_per_inspection * inspections_per_year, 365)
 
         # Equipment operational cost
@@ -508,37 +590,15 @@ class FinalFitnessEvaluator:
         annual_data_gb = data_rate_gb_per_km * self.road_network_length * inspections_per_year
 
         # 6. Algorithm processing cost
-        algo_query = f"""
-        SELECT ?procCost WHERE {{
-            OPTIONAL {{ <{config['algorithm']}> rdtco:hasProcessingCostPerGB ?procCost }}
-        }}
-        """
-
-        processing_cost_per_gb = 0.5
-        for row in self.g.query(algo_query, initNs={'rdtco': RDTCO}):
-            if row.procCost:
-                processing_cost_per_gb = float(row.procCost)
-
+        processing_cost_per_gb = self._get_cached_property(config['algorithm'], 'hasProcessingCostPerGB', 0.5)
         annual_processing_cost = annual_data_gb * processing_cost_per_gb
         total_operational_cost_per_year += annual_processing_cost
 
         # 7. Storage cost
-        storage_query = f"""
-        SELECT ?initial ?storCost WHERE {{
-            <{config['storage']}> rdtco:hasInitialCost ?initial .
-            OPTIONAL {{ <{config['storage']}> rdtco:hasStorageCostPerGBYear ?storCost }}
-        }}
-        """
-
-        storage_initial_cost = 0
-        storage_cost_per_gb_year = 0.24
-
-        for row in self.g.query(storage_query, initNs={'rdtco': RDTCO}):
-            if row.initial:
-                storage_initial_cost = float(row.initial)
-                total_initial_cost += storage_initial_cost
-            if row.storCost:
-                storage_cost_per_gb_year = float(row.storCost)
+        storage_initial_cost = self._get_cached_property(config['storage'], 'hasInitialCost', 0)
+        storage_cost_per_gb_year = self._get_cached_property(config['storage'], 'hasStorageCostPerGBYear', 0.24)
+        
+        total_initial_cost += storage_initial_cost
 
         # Average storage over retention period
         avg_storage_gb = annual_data_gb * (self.config['data_retention_years'] / 2)
@@ -550,48 +610,29 @@ class FinalFitnessEvaluator:
             if component == config['storage']:
                 continue
 
-            comp_query = f"""
-            SELECT ?initial ?annual WHERE {{
-                <{component}> rdtco:hasInitialCost ?initial .
-                OPTIONAL {{ <{component}> rdtco:hasAnnualOperationalCost ?annual }}
-            }}
-            """
-            for row in self.g.query(comp_query, initNs={'rdtco': RDTCO}):
-                if row.initial:
-                    total_initial_cost += float(row.initial)
-                if row.annual:
-                    total_operational_cost_per_year += float(row.annual)
+            initial = self._get_cached_property(component, 'hasInitialCost', 0)
+            annual = self._get_cached_property(component, 'hasAnnualOperationalCost', 0)
+            total_initial_cost += initial
+            total_operational_cost_per_year += annual
 
         # 9. Calculate total cost
         total_cost = total_initial_cost + (total_operational_cost_per_year * self.T_plan)
 
-        # 10. Soft constraints
+        # 10. Soft constraints (使用超参数)
         if config['crew_size'] > 5:
-            total_cost += (config['crew_size'] - 5) * 50000
+            total_cost += (config['crew_size'] - 5) * HYPERPARAMETERS['soft_crew_penalty']
 
         if config['inspection_cycle'] < 30:
             total_cost *= 1.1
-
-        # Fix C1: Remove hard cap, let optimization handle through constraint
-        # total_cost = min(total_cost, self.budget_cap)  # REMOVED
 
         return total_cost
 
     def _calculate_detection_performance_final(self, config):
         """
-        最终版检测性能计算
+        最终版检测性能计算（使用缓存和超参数）
         """
-        # Get algorithm base recall
-        recall_query = f"""
-        SELECT ?recall WHERE {{
-            OPTIONAL {{ <{config['algorithm']}> rdtco:hasRecall ?recall }}
-        }}
-        """
-
-        base_recall = 0.85
-        for row in self.g.query(recall_query, initNs={'rdtco': RDTCO}):
-            if row.recall:
-                base_recall = float(row.recall)
+        # Get algorithm base recall from cache
+        base_recall = self._get_cached_property(config['algorithm'], 'hasRecall', 0.85)
 
         # Special case for ML_SVM
         algo_name = str(config['algorithm']).split('#')[-1]
@@ -638,25 +679,16 @@ class FinalFitnessEvaluator:
         else:
             sensor_quality_factor = 1.0
 
-        # 4. LOD factor
+        # 4. LOD factor (使用超参数)
         lod_values = {
-            'Micro': 1.05,
+            'Micro': 1.0 + HYPERPARAMETERS['lod_influence_weight'] * 0.2,
             'Meso': 1.0,
-            'Macro': 0.88
+            'Macro': 1.0 - HYPERPARAMETERS['lod_influence_weight'] * 0.3
         }
         lod_factor = lod_values[config['geo_lod']]
 
         # 5. Data rate factor
-        optimal_rate_query = f"""
-        SELECT ?optRate WHERE {{
-            OPTIONAL {{ <{config['sensor']}> rdtco:hasOptimalDataRate ?optRate }}
-        }}
-        """
-
-        optimal_rate = 30.0
-        for row in self.g.query(optimal_rate_query, initNs={'rdtco': RDTCO}):
-            if row.optRate:
-                optimal_rate = float(row.optRate)
+        optimal_rate = self._get_cached_property(config['sensor'], 'hasOptimalDataRate', 30.0)
 
         rate_diff = abs(config['data_rate'] - optimal_rate)
         sigma_rate = optimal_rate * 0.5
@@ -684,7 +716,7 @@ class FinalFitnessEvaluator:
 
     def _calculate_latency_final(self, config):
         """
-        最终版延迟计算
+        最终版延迟计算（使用缓存）
         """
         sensor_name = str(config['sensor']).split('#')[-1]
 
@@ -701,30 +733,12 @@ class FinalFitnessEvaluator:
             t_acq = 0.1
 
         # 2. Communication time
-        data_query = f"""
-        SELECT ?dataRate WHERE {{
-            OPTIONAL {{ <{config['sensor']}> rdtco:hasDataRate ?dataRate }}
-        }}
-        """
-
-        data_gb_per_km = 1.0
-        for row in self.g.query(data_query, initNs={'rdtco': RDTCO}):
-            if row.dataRate:
-                data_gb_per_km = float(row.dataRate)
+        data_gb_per_km = self._get_cached_property(config['sensor'], 'hasDataRate', 1.0)
 
         payload_size_gb = data_gb_per_km
         payload_size_mb = payload_size_gb * 1024
 
-        bandwidth_query = f"""
-        SELECT ?bandwidth WHERE {{
-            OPTIONAL {{ <{config['communication']}> rdtco:hasBandwidth ?bandwidth }}
-        }}
-        """
-
-        bandwidth_mbps = 100
-        for row in self.g.query(bandwidth_query, initNs={'rdtco': RDTCO}):
-            if row.bandwidth:
-                bandwidth_mbps = float(row.bandwidth)
+        bandwidth_mbps = self._get_cached_property(config['communication'], 'hasBandwidth', 100)
 
         if bandwidth_mbps > 0:
             t_comm = (payload_size_mb * 8) / bandwidth_mbps
@@ -776,24 +790,15 @@ class FinalFitnessEvaluator:
 
     def _calculate_traffic_disruption_final(self, config):
         """
-        最终版交通干扰计算
+        最终版交通干扰计算（使用缓存）
         """
         sensor_name = str(config['sensor']).split('#')[-1]
 
-        # Get operating speed
-        speed_query = f"""
-        SELECT ?speed WHERE {{
-            OPTIONAL {{ <{config['sensor']}> rdtco:hasOperatingSpeed ?speed }}
-        }}
-        """
-
-        operating_speed_kmh = 1.0
-        for row in self.g.query(speed_query, initNs={'rdtco': RDTCO}):
-            if row.speed:
-                operating_speed_kmh = max(float(row.speed), 0.1)
+        # Get operating speed from cache
+        operating_speed_kmh = self._get_cached_property(config['sensor'], 'hasOperatingSpeed', 1.0)
 
         # Hours per inspection
-        hours_per_inspection = self.road_network_length / operating_speed_kmh
+        hours_per_inspection = self.road_network_length / max(operating_speed_kmh, 0.1)
 
         # Annual operation hours
         inspections_per_year = 365 / config['inspection_cycle']
@@ -886,8 +891,9 @@ class FinalRMTwinProblem(Problem):
                     x_copy[i] = int(np.round(x_copy[i]))
                     x_copy[i] = np.clip(x_copy[i], self.xl[i], self.xu[i])
 
-            # Evaluate fitness (normalized)
-            obj_values = self.evaluator.evaluate(x_copy)
+            # Evaluate fitness (使用缓存的评估)
+            x_tuple = tuple(x_copy)  # 转换为元组以支持缓存
+            obj_values = self.evaluator.evaluate(x_tuple)
             objectives.append(obj_values)
 
             # Get raw values for constraints
@@ -927,11 +933,13 @@ def save_final_results(res, mapper, evaluator, output_dir='./results'):
         diagnostic_info = {
             'error': 'No Pareto-optimal solutions found',
             'config': CONFIG,
+            'hyperparameters': HYPERPARAMETERS,
             'suggestions': [
                 'Increase budget_cap_usd',
                 'Reduce road_network_length_km',
                 'Reduce min_recall_threshold',
-                'Increase max_latency_seconds'
+                'Increase max_latency_seconds',
+                'Increase n_generations'
             ]
         }
 
@@ -1008,7 +1016,14 @@ def save_final_results(res, mapper, evaluator, output_dir='./results'):
 
     logger.info(f"Saved {n_total} Pareto-optimal solutions")
     logger.info(f"Feasible solutions: {n_feasible} ({n_feasible / n_total * 100:.1f}%)")
-    logger.info(f"High-quality solutions (Recall≥0.8, Latency≤60s): {n_high_quality}")
+    logger.info(f"High-quality solutions (Recall≥{CONFIG['min_recall_threshold']}, Latency≤{CONFIG['max_latency_seconds']}s): {n_high_quality}")
+    
+    # 打印缓存统计
+    if HYPERPARAMETERS['enable_caching']:
+        total_calls = evaluator._cache_hits + evaluator._cache_misses
+        if total_calls > 0:
+            hit_rate = evaluator._cache_hits / total_calls * 100
+            logger.info(f"Cache statistics: {evaluator._cache_hits} hits, {evaluator._cache_misses} misses, {hit_rate:.1f}% hit rate")
 
     # Save summary statistics
     summary = {
@@ -1016,6 +1031,12 @@ def save_final_results(res, mapper, evaluator, output_dir='./results'):
         'feasible_solutions': int(n_feasible),
         'high_quality_solutions': int(n_high_quality),
         'feasibility_rate': float(n_feasible / n_total) if n_total > 0 else 0,
+        'hyperparameters_used': HYPERPARAMETERS,
+        'cache_statistics': {
+            'hits': evaluator._cache_hits,
+            'misses': evaluator._cache_misses,
+            'hit_rate': evaluator._cache_hits / (evaluator._cache_hits + evaluator._cache_misses) * 100 if (evaluator._cache_hits + evaluator._cache_misses) > 0 else 0
+        },
         'objective_ranges': {
             'cost': {'min': float(df['f1_total_cost_USD'].min()), 'max': float(df['f1_total_cost_USD'].max())},
             'recall': {'min': float(df['detection_recall'].min()), 'max': float(df['detection_recall'].max())},
@@ -1066,10 +1087,10 @@ def run_multi_generation_experiment(problem, generations_list=[10, 30, 50]):
         logger.info(f"\nRunning experiment with {n_gen} generations...")
 
         algorithm = NSGA2(
-            pop_size=100,
+            pop_size=HYPERPARAMETERS['pop_size'],
             sampling=FloatRandomSampling(),
-            crossover=SBX(eta=15, prob=0.9),
-            mutation=PM(eta=20, prob=1.0 / problem.n_var),
+            crossover=SBX(eta=HYPERPARAMETERS['crossover_eta'], prob=HYPERPARAMETERS['crossover_prob']),
+            mutation=PM(eta=HYPERPARAMETERS['mutation_eta'], prob=1.0 / problem.n_var),
             eliminate_duplicates=True
         )
 
@@ -1086,7 +1107,7 @@ def run_multi_generation_experiment(problem, generations_list=[10, 30, 50]):
 
         metrics = calculate_metrics(res, problem)
         metrics['generations'] = n_gen
-        metrics['evaluations'] = n_gen * 100
+        metrics['evaluations'] = n_gen * HYPERPARAMETERS['pop_size']
 
         results[f'gen_{n_gen}'] = {
             'result': res,
@@ -1150,12 +1171,18 @@ def create_basic_visualizations(df, output_dir='./results'):
 
 def main():
     """主执行函数"""
+    import time
+    start_time = time.time()
 
     logger.info("=" * 60)
-    logger.info("Starting Final RMTwin Optimization Framework v6.0")
+    logger.info("Starting Final RMTwin Optimization Framework v6.1 (Optimized)")
     logger.info("Configuration:")
     for key, value in CONFIG.items():
         logger.info(f"  {key}: {value}")
+    logger.info("\nKey Hyperparameters:")
+    logger.info(f"  Population size: {HYPERPARAMETERS['pop_size']}")
+    logger.info(f"  Generations: {HYPERPARAMETERS['n_generations']}")
+    logger.info(f"  Caching enabled: {HYPERPARAMETERS['enable_caching']}")
     logger.info("=" * 60)
 
     # Step 1: Initialize and populate ontology
@@ -1185,14 +1212,14 @@ def main():
     # Step 3: Run main optimization
     logger.info("\nStep 3: Running main optimization...")
     algorithm = NSGA2(
-        pop_size=100,
+        pop_size=HYPERPARAMETERS['pop_size'],
         sampling=FloatRandomSampling(),
-        crossover=SBX(eta=15, prob=0.9),
-        mutation=PM(eta=20, prob=1.0 / problem.n_var),
+        crossover=SBX(eta=HYPERPARAMETERS['crossover_eta'], prob=HYPERPARAMETERS['crossover_prob']),
+        mutation=PM(eta=HYPERPARAMETERS['mutation_eta'], prob=1.0 / problem.n_var),
         eliminate_duplicates=True
     )
 
-    termination = get_termination("n_gen", 10)  # Consider increasing to 30 or 50
+    termination = get_termination("n_gen", HYPERPARAMETERS['n_generations'])
 
     res = minimize(
         problem,
@@ -1203,7 +1230,7 @@ def main():
         verbose=True
     )
 
-    # Step 4: Save results (使用新的save_final_results)
+    # Step 4: Save results
     logger.info("\nStep 4: Saving results...")
     df = save_final_results(res, problem.mapper, problem.evaluator, './results')
 
@@ -1227,19 +1254,18 @@ def main():
     else:
         logger.warning("Skipping visualizations due to empty results")
 
+    elapsed_time = time.time() - start_time
     logger.info("\n" + "=" * 60)
     logger.info("Final Optimization Complete!")
     logger.info(f"Total solutions: {len(df)}")
     logger.info(f"Feasible solutions: {df['is_feasible'].sum() if not df.empty else 0}")
     logger.info(f"High-quality solutions: {df['is_high_quality'].sum() if not df.empty else 0}")
+    logger.info(f"Total execution time: {elapsed_time:.2f} seconds")
     logger.info("Results saved to ./results/")
     logger.info("=" * 60)
 
-    return res, df  # 只返回res和df
+    return res, df
 
 
 if __name__ == "__main__":
-    res, df = main()  # 只接收两个返回值
-
-if __name__ == "__main__":
-    res, all_df, reasonable_df = main()
+    res, df = main()
