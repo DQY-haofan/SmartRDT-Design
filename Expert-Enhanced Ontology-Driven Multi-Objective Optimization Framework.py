@@ -481,7 +481,7 @@ class FinalFitnessEvaluator:
         # 使用超参数中的归一化范围
         self.normalization_params = HYPERPARAMETERS['normalization_ranges']
 
-        # 评估结果缓存
+        # 评估结果缓存 - 使用字符串键而不是元组
         self._evaluation_cache = {}
         self._cache_hits = 0
         self._cache_misses = 0
@@ -499,30 +499,30 @@ class FinalFitnessEvaluator:
     # 在 FinalFitnessEvaluator 类中修改 evaluate 方法
 
     def evaluate(self, x):
-        """评估单个解的适应度（兼容数组和元组输入）"""
-        # 确保输入是数组格式
-        if isinstance(x, tuple):
-            x = np.array(x)
+        """评估单个解的适应度（兼容numpy数组和元组）"""
+        # 处理输入类型
+        if isinstance(x, np.ndarray):
+            cache_key = tuple(x.tolist())  # 转换为可哈希的元组
+        else:
+            cache_key = x
+            x = np.array(x)  # 确保是数组用于计算
 
-        # 转换为元组用于缓存
-        x_tuple = tuple(x)
-
-        # 使用元组作为缓存键更可靠
-        if HYPERPARAMETERS['enable_caching'] and x_tuple in self._evaluation_cache:
+        # 检查缓存
+        if HYPERPARAMETERS['enable_caching'] and cache_key in self._cache:
             self._cache_hits += 1
-            return self._evaluation_cache[x_tuple]
+            return self._cache[cache_key]
 
         self._cache_misses += 1
 
+        # 原始计算逻辑
         config = self.mapper.decode_solution(x)
 
-        # Calculate raw objective values
         f1_raw = self._calculate_total_cost_final(config)
         f2_raw = self._calculate_detection_performance_final(config)
         f3_raw = self._calculate_latency_final(config)
         f4_raw = self._calculate_traffic_disruption_final(config)
 
-        # Normalize with correct ranges
+        # 归一化
         f1 = self._normalize(f1_raw, self.normalization_params['cost']['min'],
                              self.normalization_params['cost']['max'])
         f2 = self._normalize(f2_raw, self.normalization_params['recall']['min'],
@@ -534,8 +534,9 @@ class FinalFitnessEvaluator:
 
         result = np.array([f1, f2, f3, f4])
 
+        # 存入缓存
         if HYPERPARAMETERS['enable_caching']:
-            self._evaluation_cache[x_tuple] = result
+            self._cache[cache_key] = result
 
         return result
 
