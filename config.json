@@ -1,0 +1,9 @@
+{
+    "road_network_length_km": 50,
+    "planning_horizon_years": 10,
+    "budget_cap_usd": 20000000,
+    "daily_wage_per_person": 1500,
+    "min_recall_threshold": 0.70,
+    "max_latency_seconds": 180,
+    "data_retention_years": 3
+}
