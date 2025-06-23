@@ -482,7 +482,8 @@ class FinalFitnessEvaluator:
         self.normalization_params = HYPERPARAMETERS['normalization_ranges']
 
         # 评估结果缓存 - 使用字符串键而不是元组
-        self._evaluation_cache = {}
+        # 评估结果缓存
+        self._cache = {}  # 改为 _cache
         self._cache_hits = 0
         self._cache_misses = 0
 
