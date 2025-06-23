@@ -46,21 +46,21 @@ HYPERPARAMETERS = {
     'crossover_prob': 0.9,               # 交叉概率 (0.7-0.95)
     'crossover_eta': 15,                 # SBX交叉分布指数 (10-30)
     'mutation_eta': 20,                  # 多项式变异分布指数 (10-50)
-    
+
     # ===== 目标函数权重参数 =====
     'sensor_error_weight': 0.3,          # β - 传感器误差影响权重 (0.1-0.5)
     'lod_influence_weight': 0.4,         # γ - LOD影响权重 (0.2-0.6)
-    
+
     # ===== 约束惩罚参数 =====
     'constraint_penalty': 1e6,           # 约束违反惩罚系数 (1e5-1e7)
     'soft_crew_penalty': 50000,          # 超编人员惩罚 (10000-100000)
     'winter_cost_factor': 1.3,           # 冬季作业成本增加系数 (1.1-1.5)
     'urgent_schedule_factor': 1.5,       # 紧急调度成本系数 (1.2-2.0)
-    
+
     # ===== 缓存参数 =====
     'cache_size': 10000,                 # LRU缓存大小 (1000-50000)
     'enable_caching': True,              # 是否启用缓存
-    
+
     # ===== 归一化参数 =====
     'normalization_ranges': {
         'cost': {'min': 500000, 'max': 24000000},
@@ -177,18 +177,18 @@ class EnhancedOntologyPopulator:
         self._populate_algorithms(algorithms_df)
         self._populate_infrastructure(infrastructure_df)
         self._populate_cost_benefit_data(costs_df)
-        
+
         # 构建查询缓存
         self._build_query_cache()
 
         logger.info("Successfully populated enhanced ontology with cache")
         return self.g
-    
+
     def _build_query_cache(self):
         """预构建常用查询的缓存"""
         global ONTOLOGY_CACHE
         logger.info("Building ontology query cache...")
-        
+
         # 缓存所有传感器属性
         sensor_query = """
         PREFIX rdtco: <http://example.org/rdtco-maint#>
@@ -199,11 +199,11 @@ class EnhancedOntologyPopulator:
             ?sensor ?prop ?value .
         }
         """
-        
+
         for row in self.g.query(sensor_query):
             cache_key = f"{row.sensor}#{str(row.prop).split('#')[-1]}"
             ONTOLOGY_CACHE[cache_key] = float(row.value) if isinstance(row.value, Literal) and row.value.datatype in [XSD.float, XSD.double] else row.value
-            
+
         # 缓存算法属性
         algo_query = """
         PREFIX rdtco: <http://example.org/rdtco-maint#>
@@ -214,11 +214,11 @@ class EnhancedOntologyPopulator:
             ?algo ?prop ?value .
         }
         """
-        
+
         for row in self.g.query(algo_query):
             cache_key = f"{row.algo}#{str(row.prop).split('#')[-1]}"
             ONTOLOGY_CACHE[cache_key] = float(row.value) if isinstance(row.value, Literal) and row.value.datatype in [XSD.float, XSD.double] else row.value
-            
+
         logger.info(f"Cached {len(ONTOLOGY_CACHE)} ontology properties")
 
     def _enhance_algorithm_data(self, df):
@@ -480,7 +480,7 @@ class FinalFitnessEvaluator:
 
         # 使用超参数中的归一化范围
         self.normalization_params = HYPERPARAMETERS['normalization_ranges']
-        
+
         # 评估结果缓存
         self._evaluation_cache = {}
         self._cache_hits = 0
@@ -496,20 +496,28 @@ class FinalFitnessEvaluator:
         return np.clip(normalized, 0.0, 1.0)
 
     @lru_cache(maxsize=HYPERPARAMETERS['cache_size'])
-    def evaluate(self, x_tuple):
-        """评估单个解的适应度（缓存版本）"""
-        x = np.array(x_tuple)
-        
+    # 在 FinalFitnessEvaluator 类中修改 evaluate 方法
+
+    def evaluate(self, x):
+        """评估单个解的适应度（支持数组和元组输入）"""
+        # 处理输入类型
+        if isinstance(x, np.ndarray):
+            x_array = x
+            x_tuple = tuple(x)
+        else:  # 已经是元组
+            x_tuple = x
+            x_array = np.array(x)
+
         # 生成缓存键
-        cache_key = hashlib.md5(x.tobytes()).hexdigest()
-        
+        cache_key = hashlib.md5(x_array.tobytes()).hexdigest()
+
         if HYPERPARAMETERS['enable_caching'] and cache_key in self._evaluation_cache:
             self._cache_hits += 1
             return self._evaluation_cache[cache_key]
-        
+
         self._cache_misses += 1
-        
-        config = self.mapper.decode_solution(x)
+
+        config = self.mapper.decode_solution(x_array)
 
         # Calculate raw objective values
         f1_raw = self._calculate_total_cost_final(config)
@@ -528,12 +536,12 @@ class FinalFitnessEvaluator:
                              self.normalization_params['disruption']['max'])
 
         result = np.array([f1, f2, f3, f4])
-        
+
         if HYPERPARAMETERS['enable_caching']:
             self._evaluation_cache[cache_key] = result
-            
-        return result
 
+        return result
+    
     def get_raw_objectives(self, x):
         """获取原始（非归一化）的目标值"""
         config = self.mapper.decode_solution(x)
@@ -544,7 +552,7 @@ class FinalFitnessEvaluator:
         f4_raw = self._calculate_traffic_disruption_final(config)
 
         return np.array([f1_raw, f2_raw, f3_raw, f4_raw])
-    
+
     def _get_cached_property(self, uri, prop_name, default=0):
         """从缓存获取属性值"""
         cache_key = f"{uri}#{prop_name}"
@@ -597,7 +605,7 @@ class FinalFitnessEvaluator:
         # 7. Storage cost
         storage_initial_cost = self._get_cached_property(config['storage'], 'hasInitialCost', 0)
         storage_cost_per_gb_year = self._get_cached_property(config['storage'], 'hasStorageCostPerGBYear', 0.24)
-        
+
         total_initial_cost += storage_initial_cost
 
         # Average storage over retention period
@@ -1017,7 +1025,7 @@ def save_final_results(res, mapper, evaluator, output_dir='./results'):
     logger.info(f"Saved {n_total} Pareto-optimal solutions")
     logger.info(f"Feasible solutions: {n_feasible} ({n_feasible / n_total * 100:.1f}%)")
     logger.info(f"High-quality solutions (Recall≥{CONFIG['min_recall_threshold']}, Latency≤{CONFIG['max_latency_seconds']}s): {n_high_quality}")
-    
+
     # 打印缓存统计
     if HYPERPARAMETERS['enable_caching']:
         total_calls = evaluator._cache_hits + evaluator._cache_misses
