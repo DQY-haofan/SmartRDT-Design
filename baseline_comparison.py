@@ -326,8 +326,7 @@ def run_weighted_sum_baseline(problem, ontology_graph):
                         x_copy[i] = np.clip(x_copy[i], self.xl[i], self.xu[i])
 
                 # Get normalized objectives
-                obj_values = self.evaluator.evaluate(x_copy)
-
+                obj_values = self.evaluator.evaluate(tuple(x_copy))
                 # Calculate weighted sum
                 weighted_sum = (
                     self.weights['cost'] * obj_values[0] +
@@ -337,7 +336,7 @@ def run_weighted_sum_baseline(problem, ontology_graph):
                 )
 
                 # Get raw values for constraints
-                raw_values = self.evaluator.get_raw_objectives(x_copy)
+                raw_values = self.evaluator.get_raw_objectives(tuple(x_copy))
                 f1_raw, f2_raw, f3_raw, _ = raw_values
                 recall = 1 - f2_raw
 
