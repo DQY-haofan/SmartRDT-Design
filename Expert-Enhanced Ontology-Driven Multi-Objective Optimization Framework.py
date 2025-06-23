@@ -538,7 +538,8 @@ class FinalFitnessEvaluator:
             self._evaluation_cache[x_tuple] = result
 
         return result
-    
+
+
     def get_raw_objectives(self, x):
         """获取原始（非归一化）的目标值"""
         config = self.mapper.decode_solution(x)
