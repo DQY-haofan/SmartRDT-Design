@@ -499,25 +499,22 @@ class FinalFitnessEvaluator:
     # 在 FinalFitnessEvaluator 类中修改 evaluate 方法
 
     def evaluate(self, x):
-        """评估单个解的适应度（支持数组和元组输入）"""
-        # 处理输入类型
-        if isinstance(x, np.ndarray):
-            x_array = x
-            x_tuple = tuple(x)
-        else:  # 已经是元组
-            x_tuple = x
-            x_array = np.array(x)
+        """评估单个解的适应度（兼容数组和元组输入）"""
+        # 确保输入是数组格式
+        if isinstance(x, tuple):
+            x = np.array(x)
 
-        # 生成缓存键
-        cache_key = hashlib.md5(x_array.tobytes()).hexdigest()
+        # 转换为元组用于缓存
+        x_tuple = tuple(x)
 
-        if HYPERPARAMETERS['enable_caching'] and cache_key in self._evaluation_cache:
+        # 使用元组作为缓存键更可靠
+        if HYPERPARAMETERS['enable_caching'] and x_tuple in self._evaluation_cache:
             self._cache_hits += 1
-            return self._evaluation_cache[cache_key]
+            return self._evaluation_cache[x_tuple]
 
         self._cache_misses += 1
 
-        config = self.mapper.decode_solution(x_array)
+        config = self.mapper.decode_solution(x)
 
         # Calculate raw objective values
         f1_raw = self._calculate_total_cost_final(config)
@@ -538,7 +535,7 @@ class FinalFitnessEvaluator:
         result = np.array([f1, f2, f3, f4])
 
         if HYPERPARAMETERS['enable_caching']:
-            self._evaluation_cache[cache_key] = result
+            self._evaluation_cache[x_tuple] = result
 
         return result
     
