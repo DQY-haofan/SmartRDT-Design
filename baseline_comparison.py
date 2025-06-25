@@ -1,565 +1,1061 @@
+#!/usr/bin/env python3
 """
-Final Baseline Comparison Module v7.0 - FIXED
-Implements expert recommendations for feasible and defensible baselines.
-- Smarter Greedy: Iterates through Sensor/Algorithm pairs to find the cheapest FEASIBLE system.
-- Weighted-Sum: Uses more balanced weights and a deeper search (50 generations).
+Baseline Methods for RMTwin Configuration
+Updated for 6-objective comparison with the enhanced framework
+
+Provides simple baseline approaches:
+1. Random Search
+2. Grid Search
+3. Single-Objective Weighted Sum
+4. Expert Heuristic Rules
 """
 
-import json
 import numpy as np
 import pandas as pd
-from pymoo.core.problem import Problem
-from pymoo.algorithms.soo.nonconvex.ga import GA
-from pymoo.optimize import minimize
-from pymoo.operators.sampling.rnd import FloatRandomSampling
-from pymoo.operators.crossover.sbx import SBX
-from pymoo.operators.mutation.pm import PM
-from pymoo.termination import get_termination
+from typing import Dict, List, Tuple, Optional
 import logging
-from rdflib import Namespace, URIRef
-from tqdm import tqdm
-from pymoo.core.callback import Callback
+from pathlib import Path
+import json
+import time
+from dataclasses import dataclass
+import matplotlib.pyplot as plt
+import seaborn as sns
 
+# Import from main framework
+from rdflib import Graph
+import sys
+sys.path.append('.')
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, 
+                   format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-RDTCO = Namespace("http://example.org/rdtco-maint#")
 
-# Custom JSON encoder to handle numpy and rdflib types
-class UniversalEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, np.bool_):
-            return bool(obj)
-        if isinstance(obj, np.integer):
-            return int(obj)
-        if isinstance(obj, np.floating):
-            return float(obj)
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-        if isinstance(obj, URIRef):
-            return str(obj)
-        return super(UniversalEncoder, self).default(obj)
-
-class ProgressCallback(Callback):
-    """Progress bar callback class"""
-    def __init__(self, n_gen=100, desc="Optimization"):
-        super().__init__()
-        self.pbar = None
-        self.n_gen = n_gen
-        self.desc = desc
-
-    def notify(self, algorithm):
-        if self.pbar is None:
-            self.pbar = tqdm(total=self.n_gen, desc=self.desc)
-
-        self.pbar.update(1)
-        self.pbar.set_postfix({
-            'Gen': algorithm.n_gen,
-            'Best': f"{algorithm.opt[0].F[0]:.4f}" if algorithm.opt and algorithm.opt[0].F is not None else "N/A"
-        })
-
-        if algorithm.n_gen >= self.n_gen:
-            self.pbar.close()
-
-
-def run_greedy_cost_baseline(problem, ontology_graph):
-    """
-    Baseline 1: Improved Greedy Heuristic
-    保证找到可行解的贪心算法
-    """
-    logger.info("Running Improved Greedy Heuristic Baseline...")
-    mapper = problem.mapper
-    evaluator = problem.evaluator
-
-    # 存储所有可行配置
-    feasible_configs = []
-
-    # Step 1: 快速扫描找到至少一个可行配置
-    logger.info("Step 1: Quick scan for feasible configurations...")
-
-    # 优先尝试高性能组合
-    priority_sensors = []
-    for i, sensor in enumerate(mapper.sensor_options):
-        sensor_name = str(sensor).split('#')[-1]
-        # 优先选择MMS和高质量传感器
-        if 'MMS' in sensor_name and 'LiDAR' in sensor_name:
-            priority_sensors.append(i)
-        elif 'UAV' in sensor_name and 'LiDAR' in sensor_name:
-            priority_sensors.append(i)
-
-    # 添加其他传感器
-    for i in range(len(mapper.sensor_options)):
-        if i not in priority_sensors:
-            sensor_name = str(mapper.sensor_options[i]).split('#')[-1]
-            # 跳过明显不好的
-            if 'IoT' not in sensor_name and 'Vehicle_LowCost' not in sensor_name:
-                priority_sensors.append(i)
-
-    # 优先尝试高性能算法
-    priority_algos = []
-    for j, algo in enumerate(mapper.algorithm_options):
-        algo_name = str(algo).split('#')[-1]
-        if 'ML_SVM' in algo_name:  # 从之前结果看SVM表现好
-            priority_algos.insert(0, j)
-        elif 'DL_UNet' in algo_name:
-            priority_algos.append(j)
-        elif 'ML_RandomForest' in algo_name:
-            priority_algos.append(j)
-
-    # 添加其他算法
-    for j in range(len(mapper.algorithm_options)):
-        if j not in priority_algos:
-            priority_algos.append(j)
-
-    # 快速扫描（限制搜索空间）
-    scan_count = 0
-    max_scan = 200  # 最多扫描200个组合
-
-    for sensor_idx in priority_sensors[:5]:  # 只试前5个优先传感器
-        for algo_idx in priority_algos[:10]:  # 只试前10个优先算法
-            if scan_count >= max_scan:
-                break
-
-            # 尝试不同的参数组合
-            for lod in [0, 1]:  # Micro和Meso
-                for cycle in [30, 60]:  # 月检和双月检
-                    scan_count += 1
-
-                    x_test = np.array([
-                        sensor_idx,
-                        20.0,  # 标准数据率
-                        lod,
-                        lod,
-                        algo_idx,
-                        0.5,  # 中等阈值
-                        1,  # Cloud存储
-                        3,  # 4G通信
-                        2,  # Hybrid部署
-                        3,  # 3人团队（不要太少）
-                        cycle
-                    ])
-
-                    try:
-                        raw_values = evaluator.get_raw_objectives(x_test)
-                        f1_raw, f2_raw, f3_raw, f4_raw = raw_values
-                        recall = 1 - f2_raw
-
-                        g1 = f3_raw - evaluator.config['max_latency_seconds']
-                        g2 = evaluator.config['min_recall_threshold'] - recall
-                        g3 = f1_raw - evaluator.config['budget_cap_usd']
-
-                        if g1 <= 0 and g2 <= 0 and g3 <= 0:
-                            feasible_configs.append((x_test.copy(), f1_raw))
-                            logger.info(f"Found feasible: Sensor={sensor_idx}, Algo={algo_idx}, "
-                                        f"Cost=${f1_raw:.0f}, Recall={recall:.3f}")
-                    except Exception as e:
-                        logger.debug(f"Error evaluating: {e}")
-                        continue
-
-    logger.info(f"Scan complete. Found {len(feasible_configs)} feasible configurations")
-
-    # Step 2: 如果没找到可行配置，尝试更激进的参数
-    if not feasible_configs:
-        logger.info("Step 2: No feasible found in quick scan, trying aggressive parameters...")
-
-        # 使用已知的好组合（基于NSGA-II结果）
-        known_good_combos = [
-            (0, 0),  # 第一个传感器+第一个算法
-            (1, 0),  # 第二个传感器+第一个算法
-            (0, 1),  # 第一个传感器+第二个算法
-        ]
-
-        for sensor_idx, algo_idx in known_good_combos:
-            if sensor_idx >= len(mapper.sensor_options) or algo_idx >= len(mapper.algorithm_options):
-                continue
-
-            # 尝试Micro LOD和小团队来提高recall
-            x_aggressive = np.array([
-                sensor_idx,
-                15.0,  # 较低数据率
-                0,  # Micro LOD（最高质量）
-                0,  # Micro LOD
-                algo_idx,
-                0.4,  # 较低阈值
-                1,  # Cloud
-                3,  # 4G
-                2,  # Hybrid
-                2,  # 2人团队（降低成本）
-                30  # 月检
-            ])
-
-            try:
-                raw_values = evaluator.get_raw_objectives(x_aggressive)
-                f1_raw, f2_raw, f3_raw, f4_raw = raw_values
-                recall = 1 - f2_raw
-
-                g1 = f3_raw - evaluator.config['max_latency_seconds']
-                g2 = evaluator.config['min_recall_threshold'] - recall
-                g3 = f1_raw - evaluator.config['budget_cap_usd']
-
-                logger.info(f"Aggressive attempt: Cost=${f1_raw:.0f}, Recall={recall:.3f}, "
-                            f"Latency={f3_raw:.1f}s")
-
-                if g1 <= 0 and g2 <= 0 and g3 <= 0:
-                    feasible_configs.append((x_aggressive.copy(), f1_raw))
-                    logger.info("Found feasible with aggressive parameters!")
-            except:
-                continue
-
-    # Step 3: 选择成本最低的可行配置
-    if feasible_configs:
-        best_x, best_cost = min(feasible_configs, key=lambda x: x[1])
-        logger.info(f"Selected lowest cost feasible solution: ${best_cost:.0f}")
-    else:
-        # 最后的尝试：使用NSGA-II找到的配置作为参考
-        logger.warning("No feasible solution found! Using fallback configuration")
-        # 使用一个保守但可能可行的配置
-        best_x = np.array([
-            1,  # 第二个传感器（避免索引0）
-            20.0,  # 标准数据率
-            0,  # Micro LOD
-            0,  # Micro LOD
-            4,  # 第5个算法（避免前几个）
-            0.5,  # 中等阈值
-            1,  # Cloud
-            3,  # 4G
-            2,  # Hybrid
-            3,  # 3人团队
-            30  # 月检
-        ])
-
-    # 最终评估
-    config = mapper.decode_solution(best_x)
-    raw_values = evaluator.get_raw_objectives(best_x)
-    f1_raw, f2_raw, f3_raw, f4_raw = raw_values
-    recall = 1 - f2_raw
-
-    g1 = f3_raw - evaluator.config['max_latency_seconds']
-    g2 = evaluator.config['min_recall_threshold'] - recall
-    g3 = f1_raw - evaluator.config['budget_cap_usd']
-
-    is_feasible = (g1 <= 0 and g2 <= 0 and g3 <= 0)
-
-    result = {
-        'method': 'Greedy Cost-Minimization',
-        'configuration': {
-            'sensor': str(config['sensor']).split('#')[-1],
-            'data_rate_Hz': float(config['data_rate']),
-            'geometric_LOD': config['geo_lod'],
-            'condition_LOD': config['cond_lod'],
-            'algorithm': str(config['algorithm']).split('#')[-1],
-            'detection_threshold': float(config['detection_threshold']),
-            'storage': str(config['storage']).split('#')[-1],
-            'communication': str(config['communication']).split('#')[-1],
-            'deployment': str(config['deployment']).split('#')[-1],
-            'crew_size': int(config['crew_size']),
-            'inspection_cycle_days': int(config['inspection_cycle'])
-        },
-        'objectives': {
-            'f1_total_cost_USD': float(f1_raw),
-            'f2_one_minus_recall': float(f2_raw),
-            'f3_latency_seconds': float(f3_raw),
-            'f4_traffic_disruption_hours': float(f4_raw),
-            'detection_recall': float(recall)
-        },
-        'constraints': {
-            'g1_latency_violation': float(g1),
-            'g2_recall_violation': float(g2),
-            'g3_budget_violation': float(g3),
-            'is_feasible': is_feasible
-        },
-        'x_vector': best_x.tolist()
-    }
-
-    with open('./results/baseline_greedy_solution.json', 'w', encoding='utf-8') as f:
-        json.dump(result, f, indent=2, cls=UniversalEncoder)
-
-    logger.info(f"Greedy baseline complete")
-    logger.info(f"Final result: Cost=${f1_raw:.0f}, Recall={recall:.3f}, "
-                f"Latency={f3_raw:.1f}s, Feasible={is_feasible}")
-
-    if not is_feasible:
-        logger.warning("WARNING: Greedy baseline failed to find a feasible solution!")
-        logger.warning(f"Constraint violations: g1={g1:.3f}, g2={g2:.3f}, g3={g3:.3f}")
-
-    return result
-
-def run_weighted_sum_baseline(problem, ontology_graph):
-    """
-    Baseline 2: Fixed Weighted-Sum Single-Objective Optimization
-    Implements balanced weights and a deeper search.
-    """
-    logger.info("Running Weighted-Sum Single-Objective Baseline (Fixed)...")
-
-    # FIX 1: Rebalance weights to give latency more importance
-    weights = {
-        'cost': 0.4,
-        'recall': 0.3,
-        'latency': 0.2,
-        'disruption': 0.1
-    }
-
-    class WeightedSumProblem(Problem):
-        def __init__(self, original_problem, weights):
-            self.original_problem = original_problem
-            self.weights = weights
-            self.mapper = original_problem.mapper
-            self.evaluator = original_problem.evaluator
-
-            super().__init__(
-                n_var=original_problem.n_var,
-                n_obj=1,
-                n_constr=original_problem.n_constr,
-                xl=original_problem.xl,
-                xu=original_problem.xu,
-                type_var=original_problem.type_var
-            )
-
-        def _evaluate(self, X, out, *args, **kwargs):
-            objectives = []
-            constraints = []
-
-            for x in X:
-                # Handle integer variables
-                x_copy = x.copy()
-                for i in range(len(x_copy)):
-                    if self.original_problem.var_types[i] == 'int':
-                        x_copy[i] = int(np.round(x_copy[i]))
-                        x_copy[i] = np.clip(x_copy[i], self.xl[i], self.xu[i])
-
-                # Get normalized objectives
-                obj_values = self.evaluator.evaluate(tuple(x_copy))
-                # Calculate weighted sum
-                weighted_sum = (
-                    self.weights['cost'] * obj_values[0] +
-                    self.weights['recall'] * obj_values[1] +
-                    self.weights['latency'] * obj_values[2] +
-                    self.weights['disruption'] * obj_values[3]
-                )
-
-                # Get raw values for constraints
-                raw_values = self.evaluator.get_raw_objectives(tuple(x_copy))
-                f1_raw, f2_raw, f3_raw, _ = raw_values
-                recall = 1 - f2_raw
-
-                g1 = f3_raw - self.evaluator.config['max_latency_seconds']
-                g2 = self.evaluator.config['min_recall_threshold'] - recall
-                g3 = f1_raw - self.evaluator.config['budget_cap_usd']
-
-                # Add strong penalties for constraint violations
-                penalty = 0
-                if g1 > 0:  # Latency violation
-                    penalty += (g1 / self.evaluator.config['max_latency_seconds']) * 100
-                if g2 > 0:  # Recall violation
-                    penalty += g2 * 200  # Stronger penalty for recall
-                if g3 > 0:  # Budget violation
-                    penalty += (g3 / self.evaluator.config['budget_cap_usd']) * 100
-
-                objectives.append([weighted_sum + penalty])
-                constraints.append([g1, g2, g3])
-
-            out["F"] = np.array(objectives)
-            out["G"] = np.array(constraints)
-
-    ws_problem = WeightedSumProblem(problem, weights)
-
-    algorithm = GA(
-        pop_size=100,
-        sampling=FloatRandomSampling(),
-        crossover=SBX(eta=15, prob=0.9),
-        mutation=PM(eta=20, prob=1.0/ws_problem.n_var),
-        eliminate_duplicates=True
-    )
-
-    # FIX 2: Increase search depth
-    n_generations = 10
-    termination = get_termination("n_gen", n_generations)
-    progress_callback = ProgressCallback(n_gen=n_generations, desc="Weighted-Sum GA")
-
-    res = minimize(
-        ws_problem,
-        algorithm,
-        termination,
-        seed=42,
-        verbose=False,
-        callback=progress_callback
-    )
-
-    if res.X is None:
-        logger.error("Weighted-Sum baseline failed to find a solution.")
-        return None
-
-    x_weighted = res.X
-
-    # Handle integer variables
-    for i in range(len(x_weighted)):
-        if problem.var_types[i] == 'int':
-            x_weighted[i] = int(np.round(x_weighted[i]))
-            x_weighted[i] = np.clip(x_weighted[i], problem.xl[i], problem.xu[i])
-
-    config = problem.mapper.decode_solution(x_weighted)
-    raw_values = problem.evaluator.get_raw_objectives(x_weighted)
-    f1_raw, f2_raw, f3_raw, f4_raw = raw_values
-    recall = 1 - f2_raw
-
-    g1 = f3_raw - problem.evaluator.config['max_latency_seconds']
-    g2 = problem.evaluator.config['min_recall_threshold'] - recall
-    g3 = f1_raw - problem.evaluator.config['budget_cap_usd']
-
-    result = {
-        'method': 'Weighted-Sum Optimization',
-        'weights': weights,
-        'configuration': {
-            'sensor': str(config['sensor']).split('#')[-1],
-            'data_rate_Hz': float(config['data_rate']),
-            'geometric_LOD': config['geo_lod'],
-            'condition_LOD': config['cond_lod'],
-            'algorithm': str(config['algorithm']).split('#')[-1],
-            'detection_threshold': float(config['detection_threshold']),
-            'storage': str(config['storage']).split('#')[-1],
-            'communication': str(config['communication']).split('#')[-1],
-            'deployment': str(config['deployment']).split('#')[-1],
-            'crew_size': int(config['crew_size']),
-            'inspection_cycle_days': int(config['inspection_cycle'])
-        },
-        'objectives': {
-            'f1_total_cost_USD': float(f1_raw),
-            'f2_one_minus_recall': float(f2_raw),
-            'f3_latency_seconds': float(f3_raw),
-            'f4_traffic_disruption_hours': float(f4_raw),
-            'detection_recall': float(recall)
-        },
-        'constraints': {
-            'g1_latency_violation': float(g1),
-            'g2_recall_violation': float(g2),
-            'g3_budget_violation': float(g3),
-            'is_feasible': bool(g1 <= 0 and g2 <= 0 and g3 <= 0)
-        },
-        'weighted_sum_score': float(res.F[0]),
-        'x_vector': x_weighted.tolist()
-    }
-
-    with open('./results/baseline_weighted_sum_solution.json', 'w', encoding='utf-8') as f:
-        json.dump(result, f, indent=2, cls=UniversalEncoder)
-
-    logger.info(f"Weighted-sum baseline complete: Cost=${f1_raw:.0f}, Recall={recall:.3f}, "
-                f"Latency={f3_raw:.1f}s, Feasible={result['constraints']['is_feasible']}")
-
-    return result
-
-def run_all_baselines(problem, ontology_graph):
-    """Run all baseline methods"""
-    results = {}
-
-    # Run greedy baseline
-    greedy_result = run_greedy_cost_baseline(problem, ontology_graph)
-    if greedy_result:
-        results['greedy'] = greedy_result
-    else:
-        logger.error("Greedy baseline failed to produce a result")
-
-    # Run weighted sum baseline
-    weighted_result = run_weighted_sum_baseline(problem, ontology_graph)
-    if weighted_result:
-        results['weighted_sum'] = weighted_result
-    else:
-        logger.error("Weighted-sum baseline failed to produce a result")
-
-    # Save combined results
-    with open('./results/all_baseline_results.json', 'w', encoding='utf-8') as f:
-        json.dump(results, f, indent=2, cls=UniversalEncoder)
-
-    logger.info("All baseline comparisons complete")
-    return results
-
-def run_ablation_study(problem, ontology_graph):
-    """
-    Ablation Study: Run NSGA-II without semantic pre-filtering
-    """
-    logger.info("Running Ablation Study (No Semantic Pre-filtering)...")
-
-    from pymoo.algorithms.moo.nsga2 import NSGA2
-
-    class AblationProgressCallback(Callback):
-        """Ablation study progress bar callback"""
-        def __init__(self, n_gen=10):
-            super().__init__()
-            self.pbar = None
-            self.n_gen = n_gen
-
-        def notify(self, algorithm):
-            if self.pbar is None:
-                self.pbar = tqdm(total=self.n_gen, desc="Ablation Study")
-
-            self.pbar.update(1)
-
-            # Calculate feasibility statistics
-            if hasattr(algorithm, 'pop') and algorithm.pop is not None:
-                G = algorithm.pop.get("G")
-                if G is not None:
-                    n_feasible = np.sum([np.all(g <= 0) for g in G])
-                    cv_avg = np.mean([np.sum(np.maximum(0, g)) for g in G])
-                    self.pbar.set_postfix({
-                        'Gen': algorithm.n_gen,
-                        'Feasible': n_feasible,
-                        'CV_avg': f"{cv_avg:.3f}"
-                    })
-
-            if algorithm.n_gen >= self.n_gen:
-                self.pbar.close()
-
-    # Configure NSGA-II without semantic pre-filtering
-    algorithm = NSGA2(
-        pop_size=200,
-        sampling=FloatRandomSampling(),  # Pure random sampling
-        crossover=SBX(eta=15, prob=0.9),
-        mutation=PM(eta=20, prob=1.0/problem.n_var),
-        eliminate_duplicates=True
-    )
-
-    # Run optimization
-    n_generations = 10
-    termination = get_termination("n_gen", n_generations)
-    progress_callback = AblationProgressCallback(n_gen=n_generations)
-
-    res = minimize(
-        problem,
-        algorithm,
-        termination,
-        seed=42,
-        save_history=True,
-        verbose=False,
-        callback=progress_callback
-    )
-
-    # Analyze convergence history
-    convergence_data = []
-    for gen in range(len(res.history)):
-        opt = res.history[gen].opt
-        if opt is not None and len(opt) > 0:
-            cv_avg = np.mean([np.sum(np.maximum(0, g)) for g in opt.get("G")])
-            n_feasible = np.sum([np.all(g <= 0) for g in opt.get("G")])
-
-            convergence_data.append({
-                'generation': gen,
-                'cv_average': float(cv_avg),
-                'n_feasible': int(n_feasible),
-                'n_total': len(opt)
-            })
-
-    # Save ablation study results
-    ablation_result = {
-        'method': 'NSGA-II without Semantic Pre-filtering',
-        'convergence_history': convergence_data,
-        'final_statistics': {
-            'n_solutions': len(res.X) if res.X is not None else 0,
-            'n_feasible': np.sum([np.all(g <= 0) for g in res.G]) if res.G is not None else 0,
-            'generations_to_first_feasible': next((d['generation'] for d in convergence_data if d['n_feasible'] > 0), -1)
+# ============================================================================
+# BASELINE CONFIGURATION
+# ============================================================================
+
+@dataclass
+class BaselineConfig:
+    """Configuration for baseline methods"""
+    # Method parameters
+    n_random_samples: int = 1000
+    grid_resolution: int = 5  # Points per dimension for grid search
+    weight_combinations: int = 50  # Number of weight combinations for weighted sum
+    
+    # Optimization parameters (matching main framework)
+    road_network_length_km: float = 100.0
+    planning_horizon_years: int = 10
+    budget_cap_usd: float = 1_000_000
+    min_recall_threshold: float = 0.80
+    max_latency_seconds: float = 60.0
+    
+    # New constraints for 6 objectives
+    max_energy_kwh_year: float = 50_000
+    min_mtbf_hours: float = 5_000
+    
+    # Output
+    output_dir: str = './results/baseline'
+
+# ============================================================================
+# BASELINE EVALUATOR (Simplified version)
+# ============================================================================
+
+class BaselineEvaluator:
+    """Simplified evaluator for baseline methods"""
+    
+    def __init__(self, ontology_graph: Graph, config: BaselineConfig):
+        self.g = ontology_graph
+        self.config = config
+        self._cache_components()
+        
+    def _cache_components(self):
+        """Cache available components"""
+        # Simplified component extraction
+        self.sensors = []
+        self.algorithms = []
+        self.storage_systems = []
+        self.comm_systems = []
+        self.deployments = []
+        
+        # Extract from ontology (simplified)
+        for s, p, o in self.g:
+            if 'Sensor' in str(o) and 'System' in str(o):
+                self.sensors.append(str(s))
+            elif 'Algorithm' in str(o):
+                self.algorithms.append(str(s))
+            elif str(o).endswith('StorageSystem'):
+                self.storage_systems.append(str(s))
+            elif str(o).endswith('CommunicationSystem'):
+                self.comm_systems.append(str(s))
+            elif str(o).endswith('ComputeDeployment'):
+                self.deployments.append(str(s))
+        
+        # Remove duplicates
+        self.sensors = list(set(self.sensors))[:10]  # Limit for baseline
+        self.algorithms = list(set(self.algorithms))[:10]
+        self.storage_systems = list(set(self.storage_systems))[:5]
+        self.comm_systems = list(set(self.comm_systems))[:5]
+        self.deployments = list(set(self.deployments))[:5]
+        
+    def decode_solution(self, x: np.ndarray) -> Dict:
+        """Decode solution vector"""
+        return {
+            'sensor': self.sensors[int(x[0] * len(self.sensors)) % len(self.sensors)],
+            'data_rate': 10 + x[1] * 90,
+            'geo_lod': ['Micro', 'Meso', 'Macro'][int(x[2] * 3) % 3],
+            'cond_lod': ['Micro', 'Meso', 'Macro'][int(x[3] * 3) % 3],
+            'algorithm': self.algorithms[int(x[4] * len(self.algorithms)) % len(self.algorithms)],
+            'detection_threshold': 0.1 + x[5] * 0.8,
+            'storage': self.storage_systems[int(x[6] * len(self.storage_systems)) % len(self.storage_systems)],
+            'communication': self.comm_systems[int(x[7] * len(self.comm_systems)) % len(self.comm_systems)],
+            'deployment': self.deployments[int(x[8] * len(self.deployments)) % len(self.deployments)],
+            'crew_size': int(1 + x[9] * 9),
+            'inspection_cycle': int(1 + x[10] * 364)
         }
+    
+    def evaluate(self, x: np.ndarray) -> Tuple[np.ndarray, bool]:
+        """Evaluate a solution (simplified)"""
+        config = self.decode_solution(x)
+        
+        # Simplified objective calculations
+        f1 = self._calculate_cost(config)
+        f2 = self._calculate_detection_performance(config)
+        f3 = self._calculate_latency(config)
+        f4 = self._calculate_disruption(config)
+        f5 = self._calculate_environmental_impact(config)
+        f6 = self._calculate_reliability(config)
+        
+        # Check constraints
+        recall = 1 - f2
+        is_feasible = (
+            f1 <= self.config.budget_cap_usd and
+            recall >= self.config.min_recall_threshold and
+            f3 <= self.config.max_latency_seconds and
+            f5 <= self.config.max_energy_kwh_year and
+            (1/f6 if f6 > 0 else 0) >= self.config.min_mtbf_hours
+        )
+        
+        return np.array([f1, f2, f3, f4, f5, f6]), is_feasible
+    
+    def _calculate_cost(self, config: Dict) -> float:
+        """Simplified cost calculation"""
+        # Base costs by component type
+        sensor_costs = {
+            'LiDAR': 500000, 'Camera': 100000, 'IoT': 50000, 'TLS': 200000
+        }
+        algo_costs = {
+            'Deep': 50000, 'Machine': 20000, 'Traditional': 5000
+        }
+        
+        # Estimate based on component names
+        sensor_cost = next((cost for key, cost in sensor_costs.items() 
+                          if key.lower() in config['sensor'].lower()), 200000)
+        algo_cost = next((cost for key, cost in algo_costs.items() 
+                        if key.lower() in config['algorithm'].lower()), 20000)
+        
+        # Operational costs
+        crew_cost = config['crew_size'] * 1000 * 365 / config['inspection_cycle']
+        
+        total_cost = sensor_cost + algo_cost + crew_cost * self.config.planning_horizon_years
+        
+        return total_cost
+    
+    def _calculate_detection_performance(self, config: Dict) -> float:
+        """Simplified performance calculation"""
+        # Base recall by algorithm type
+        if 'Deep' in config['algorithm']:
+            base_recall = 0.90
+        elif 'Machine' in config['algorithm']:
+            base_recall = 0.80
+        else:
+            base_recall = 0.65
+            
+        # Adjust by LOD
+        if config['geo_lod'] == 'Micro':
+            base_recall *= 1.1
+        elif config['geo_lod'] == 'Macro':
+            base_recall *= 0.9
+            
+        return 1 - min(base_recall, 0.99)  # Return 1-recall
+    
+    def _calculate_latency(self, config: Dict) -> float:
+        """Simplified latency calculation"""
+        # Base latency by deployment
+        if 'Edge' in config['deployment']:
+            base_latency = 0.5
+        elif 'Cloud' in config['deployment']:
+            base_latency = 2.0
+        else:
+            base_latency = 1.0
+            
+        # Adjust by data rate
+        latency = base_latency + (config['data_rate'] / 100) * 0.5
+        
+        return latency
+    
+    def _calculate_disruption(self, config: Dict) -> float:
+        """Simplified disruption calculation"""
+        inspections_per_year = 365 / config['inspection_cycle']
+        hours_per_inspection = 4
+        
+        # Adjust by sensor type
+        if 'MMS' in config['sensor'] or 'Mobile' in config['sensor']:
+            hours_per_inspection *= 0.5  # Faster
+        
+        return inspections_per_year * hours_per_inspection
+    
+    def _calculate_environmental_impact(self, config: Dict) -> float:
+        """Simplified environmental impact (kWh/year)"""
+        # Base consumption by sensor type
+        sensor_energy = {
+            'LiDAR': 200, 'Camera': 50, 'IoT': 10, 'TLS': 100
+        }
+        
+        # Estimate sensor power
+        sensor_power = next((power for key, power in sensor_energy.items() 
+                           if key.lower() in config['sensor'].lower()), 100)
+        
+        # Backend power (simplified)
+        if 'Cloud' in config['deployment']:
+            backend_power = 500
+        else:
+            backend_power = 300
+            
+        # Annual consumption
+        sensor_hours = (365 / config['inspection_cycle']) * 8 * 10  # inspection days * hours * length factor
+        backend_hours = 365 * 24
+        
+        total_kwh = (sensor_power * sensor_hours + backend_power * backend_hours) / 1000
+        
+        return total_kwh
+    
+    def _calculate_reliability(self, config: Dict) -> float:
+        """Simplified reliability (1/MTBF)"""
+        # Base MTBF by component type
+        if 'LiDAR' in config['sensor']:
+            sensor_mtbf = 20000
+        elif 'Camera' in config['sensor']:
+            sensor_mtbf = 10000
+        else:
+            sensor_mtbf = 50000
+            
+        # System reliability (simplified)
+        system_mtbf = sensor_mtbf * 0.8  # Account for other components
+        
+        return 1 / system_mtbf if system_mtbf > 0 else 1.0
+
+# ============================================================================
+# BASELINE METHODS
+# ============================================================================
+
+class RandomSearchBaseline:
+    """Random search baseline"""
+    
+    def __init__(self, evaluator: BaselineEvaluator, config: BaselineConfig):
+        self.evaluator = evaluator
+        self.config = config
+        
+    def optimize(self) -> pd.DataFrame:
+        """Run random search"""
+        logger.info(f"Running Random Search with {self.config.n_random_samples} samples...")
+        
+        results = []
+        start_time = time.time()
+        
+        for i in range(self.config.n_random_samples):
+            # Generate random solution
+            x = np.random.rand(11)
+            
+            # Evaluate
+            objectives, is_feasible = self.evaluator.evaluate(x)
+            
+            # Decode for storage
+            config = self.evaluator.decode_solution(x)
+            
+            result = {
+                'method': 'RandomSearch',
+                'solution_id': i + 1,
+                'sensor': config['sensor'].split('/')[-1],
+                'algorithm': config['algorithm'].split('/')[-1],
+                'f1_total_cost_USD': objectives[0],
+                'f2_one_minus_recall': objectives[1],
+                'f3_latency_seconds': objectives[2],
+                'f4_traffic_disruption_hours': objectives[3],
+                'f5_environmental_impact_kWh_year': objectives[4],
+                'f6_system_reliability_inverse_MTBF': objectives[5],
+                'detection_recall': 1 - objectives[1],
+                'system_MTBF_hours': 1/objectives[5] if objectives[5] > 0 else float('inf'),
+                'is_feasible': is_feasible,
+                'time_seconds': time.time() - start_time
+            }
+            results.append(result)
+            
+            if (i + 1) % 100 == 0:
+                logger.info(f"  Evaluated {i + 1} random solutions...")
+        
+        df = pd.DataFrame(results)
+        logger.info(f"Random Search completed in {time.time() - start_time:.2f} seconds")
+        logger.info(f"  Found {df['is_feasible'].sum()} feasible solutions")
+        
+        return df
+
+class GridSearchBaseline:
+    """Grid search baseline"""
+    
+    def __init__(self, evaluator: BaselineEvaluator, config: BaselineConfig):
+        self.evaluator = evaluator
+        self.config = config
+        
+    def optimize(self) -> pd.DataFrame:
+        """Run grid search (simplified on subset of variables)"""
+        logger.info(f"Running Grid Search with resolution {self.config.grid_resolution}...")
+        
+        # For tractability, only grid search on key discrete variables
+        sensors_subset = self.evaluator.sensors[:3]
+        algos_subset = self.evaluator.algorithms[:3]
+        lod_options = ['Micro', 'Meso', 'Macro']
+        
+        results = []
+        start_time = time.time()
+        solution_id = 0
+        
+        for sensor_idx, sensor in enumerate(sensors_subset):
+            for algo_idx, algo in enumerate(algos_subset):
+                for geo_lod in lod_options:
+                    for deployment_idx in range(min(3, len(self.evaluator.deployments))):
+                        # Create solution vector
+                        x = np.zeros(11)
+                        x[0] = sensor_idx / len(sensors_subset)
+                        x[2] = lod_options.index(geo_lod) / 3
+                        x[3] = x[2]  # Same LOD for simplicity
+                        x[4] = algo_idx / len(algos_subset)
+                        x[5] = 0.5  # Fixed threshold
+                        x[6] = 0.5  # Middle storage option
+                        x[7] = 0.5  # Middle comm option
+                        x[8] = deployment_idx / 3
+                        x[9] = 0.3  # 3-person crew
+                        x[10] = 0.1  # ~36 day cycle
+                        x[1] = 0.5  # Middle data rate
+                        
+                        # Evaluate
+                        objectives, is_feasible = self.evaluator.evaluate(x)
+                        config = self.evaluator.decode_solution(x)
+                        
+                        solution_id += 1
+                        result = {
+                            'method': 'GridSearch',
+                            'solution_id': solution_id,
+                            'sensor': config['sensor'].split('/')[-1],
+                            'algorithm': config['algorithm'].split('/')[-1],
+                            'f1_total_cost_USD': objectives[0],
+                            'f2_one_minus_recall': objectives[1],
+                            'f3_latency_seconds': objectives[2],
+                            'f4_traffic_disruption_hours': objectives[3],
+                            'f5_environmental_impact_kWh_year': objectives[4],
+                            'f6_system_reliability_inverse_MTBF': objectives[5],
+                            'detection_recall': 1 - objectives[1],
+                            'system_MTBF_hours': 1/objectives[5] if objectives[5] > 0 else float('inf'),
+                            'is_feasible': is_feasible,
+                            'time_seconds': time.time() - start_time
+                        }
+                        results.append(result)
+        
+        df = pd.DataFrame(results)
+        logger.info(f"Grid Search completed in {time.time() - start_time:.2f} seconds")
+        logger.info(f"  Evaluated {len(df)} grid points")
+        logger.info(f"  Found {df['is_feasible'].sum()} feasible solutions")
+        
+        return df
+
+class WeightedSumBaseline:
+    """Weighted sum single-objective baseline"""
+    
+    def __init__(self, evaluator: BaselineEvaluator, config: BaselineConfig):
+        self.evaluator = evaluator
+        self.config = config
+        
+    def optimize(self) -> pd.DataFrame:
+        """Run weighted sum optimization"""
+        logger.info(f"Running Weighted Sum with {self.config.weight_combinations} weight sets...")
+        
+        results = []
+        start_time = time.time()
+        
+        # Generate weight combinations
+        weight_sets = self._generate_weight_sets()
+        
+        for weight_idx, weights in enumerate(weight_sets):
+            # Random search with this weight set
+            best_score = float('inf')
+            best_solution = None
+            best_objectives = None
+            
+            for _ in range(100):  # 100 random samples per weight set
+                x = np.random.rand(11)
+                objectives, is_feasible = self.evaluator.evaluate(x)
+                
+                if is_feasible:
+                    # Normalize objectives
+                    norm_obj = self._normalize_objectives(objectives)
+                    
+                    # Calculate weighted sum
+                    score = np.dot(weights, norm_obj)
+                    
+                    if score < best_score:
+                        best_score = score
+                        best_solution = x
+                        best_objectives = objectives
+            
+            if best_solution is not None:
+                config = self.evaluator.decode_solution(best_solution)
+                
+                result = {
+                    'method': 'WeightedSum',
+                    'solution_id': weight_idx + 1,
+                    'weights': weights.tolist(),
+                    'sensor': config['sensor'].split('/')[-1],
+                    'algorithm': config['algorithm'].split('/')[-1],
+                    'f1_total_cost_USD': best_objectives[0],
+                    'f2_one_minus_recall': best_objectives[1],
+                    'f3_latency_seconds': best_objectives[2],
+                    'f4_traffic_disruption_hours': best_objectives[3],
+                    'f5_environmental_impact_kWh_year': best_objectives[4],
+                    'f6_system_reliability_inverse_MTBF': best_objectives[5],
+                    'detection_recall': 1 - best_objectives[1],
+                    'system_MTBF_hours': 1/best_objectives[5] if best_objectives[5] > 0 else float('inf'),
+                    'is_feasible': True,
+                    'time_seconds': time.time() - start_time
+                }
+                results.append(result)
+            
+            if (weight_idx + 1) % 10 == 0:
+                logger.info(f"  Evaluated {weight_idx + 1} weight combinations...")
+        
+        df = pd.DataFrame(results)
+        logger.info(f"Weighted Sum completed in {time.time() - start_time:.2f} seconds")
+        logger.info(f"  Found {len(df)} solutions")
+        
+        return df
+    
+    def _generate_weight_sets(self) -> np.ndarray:
+        """Generate diverse weight combinations"""
+        weight_sets = []
+        
+        # Uniform weights
+        weight_sets.append(np.ones(6) / 6)
+        
+        # Single objective focus
+        for i in range(6):
+            w = np.zeros(6)
+            w[i] = 1.0
+            weight_sets.append(w)
+        
+        # Random weights
+        for _ in range(self.config.weight_combinations - 7):
+            w = np.random.rand(6)
+            w = w / w.sum()  # Normalize
+            weight_sets.append(w)
+        
+        return np.array(weight_sets)
+    
+    def _normalize_objectives(self, objectives: np.ndarray) -> np.ndarray:
+        """Normalize objectives to [0, 1]"""
+        # Simple min-max normalization with assumed ranges
+        ranges = [
+            (100000, 2000000),    # Cost
+            (0, 0.4),             # 1-Recall
+            (0.1, 10),            # Latency
+            (0, 200),             # Disruption
+            (1000, 100000),       # Energy
+            (0, 0.001)            # 1/MTBF
+        ]
+        
+        norm_obj = np.zeros_like(objectives)
+        for i, (min_val, max_val) in enumerate(ranges):
+            norm_obj[i] = (objectives[i] - min_val) / (max_val - min_val)
+            norm_obj[i] = np.clip(norm_obj[i], 0, 1)
+        
+        return norm_obj
+
+class ExpertHeuristicBaseline:
+    """Expert heuristic rules baseline"""
+    
+    def __init__(self, evaluator: BaselineEvaluator, config: BaselineConfig):
+        self.evaluator = evaluator
+        self.config = config
+        
+    def optimize(self) -> pd.DataFrame:
+        """Generate solutions based on expert rules"""
+        logger.info("Running Expert Heuristic baseline...")
+        
+        results = []
+        start_time = time.time()
+        
+        # Expert Rule 1: High-performance configuration
+        x1 = self._create_high_performance_config()
+        obj1, feas1 = self.evaluator.evaluate(x1)
+        results.append(self._create_result('HighPerformance', 1, x1, obj1, feas1, start_time))
+        
+        # Expert Rule 2: Low-cost configuration
+        x2 = self._create_low_cost_config()
+        obj2, feas2 = self.evaluator.evaluate(x2)
+        results.append(self._create_result('LowCost', 2, x2, obj2, feas2, start_time))
+        
+        # Expert Rule 3: Balanced configuration
+        x3 = self._create_balanced_config()
+        obj3, feas3 = self.evaluator.evaluate(x3)
+        results.append(self._create_result('Balanced', 3, x3, obj3, feas3, start_time))
+        
+        # Expert Rule 4: Sustainable configuration
+        x4 = self._create_sustainable_config()
+        obj4, feas4 = self.evaluator.evaluate(x4)
+        results.append(self._create_result('Sustainable', 4, x4, obj4, feas4, start_time))
+        
+        # Expert Rule 5: Reliable configuration
+        x5 = self._create_reliable_config()
+        obj5, feas5 = self.evaluator.evaluate(x5)
+        results.append(self._create_result('Reliable', 5, x5, obj5, feas5, start_time))
+        
+        df = pd.DataFrame(results)
+        logger.info(f"Expert Heuristic completed in {time.time() - start_time:.2f} seconds")
+        logger.info(f"  Generated {len(df)} expert configurations")
+        
+        return df
+    
+    def _create_high_performance_config(self) -> np.ndarray:
+        """Create high-performance configuration"""
+        x = np.zeros(11)
+        x[0] = 0.1  # High-end sensor (LiDAR)
+        x[1] = 0.9  # High data rate
+        x[2] = 0.0  # Micro LOD
+        x[3] = 0.0  # Micro LOD
+        x[4] = 0.1  # Deep learning algorithm
+        x[5] = 0.7  # High threshold
+        x[6] = 0.8  # High-end storage
+        x[7] = 0.9  # Fiber communication
+        x[8] = 0.2  # Cloud deployment
+        x[9] = 0.5  # Medium crew
+        x[10] = 0.05  # Frequent inspection
+        return x
+    
+    def _create_low_cost_config(self) -> np.ndarray:
+        """Create low-cost configuration"""
+        x = np.zeros(11)
+        x[0] = 0.8  # Low-cost sensor (IoT)
+        x[1] = 0.2  # Low data rate
+        x[2] = 0.9  # Macro LOD
+        x[3] = 0.9  # Macro LOD
+        x[4] = 0.9  # Traditional algorithm
+        x[5] = 0.5  # Medium threshold
+        x[6] = 0.2  # Low-cost storage
+        x[7] = 0.2  # LoRaWAN
+        x[8] = 0.8  # Edge deployment
+        x[9] = 0.1  # Small crew
+        x[10] = 0.5  # Infrequent inspection
+        return x
+    
+    def _create_balanced_config(self) -> np.ndarray:
+        """Create balanced configuration"""
+        x = np.zeros(11)
+        x[0] = 0.5  # Mid-range sensor
+        x[1] = 0.5  # Medium data rate
+        x[2] = 0.5  # Meso LOD
+        x[3] = 0.5  # Meso LOD
+        x[4] = 0.5  # ML algorithm
+        x[5] = 0.5  # Medium threshold
+        x[6] = 0.5  # Hybrid storage
+        x[7] = 0.5  # 4G/5G
+        x[8] = 0.5  # Hybrid deployment
+        x[9] = 0.3  # Medium crew
+        x[10] = 0.2  # Regular inspection
+        return x
+    
+    def _create_sustainable_config(self) -> np.ndarray:
+        """Create sustainable configuration"""
+        x = np.zeros(11)
+        x[0] = 0.7  # Low-power sensor
+        x[1] = 0.3  # Low data rate
+        x[2] = 0.7  # Coarse LOD
+        x[3] = 0.7  # Coarse LOD
+        x[4] = 0.6  # Efficient algorithm
+        x[5] = 0.5  # Medium threshold
+        x[6] = 0.3  # Efficient storage
+        x[7] = 0.3  # Low-power comm
+        x[8] = 0.9  # Edge deployment
+        x[9] = 0.2  # Small crew
+        x[10] = 0.3  # Moderate inspection
+        return x
+    
+    def _create_reliable_config(self) -> np.ndarray:
+        """Create reliable configuration"""
+        x = np.zeros(11)
+        x[0] = 0.2  # Industrial sensor
+        x[1] = 0.4  # Moderate data rate
+        x[2] = 0.3  # Fine LOD
+        x[3] = 0.3  # Fine LOD
+        x[4] = 0.4  # Proven algorithm
+        x[5] = 0.6  # Conservative threshold
+        x[6] = 0.6  # Redundant storage
+        x[7] = 0.7  # Reliable comm
+        x[8] = 0.4  # On-premise
+        x[9] = 0.4  # Adequate crew
+        x[10] = 0.15  # Regular inspection
+        return x
+    
+    def _create_result(self, rule_name: str, sol_id: int, x: np.ndarray, 
+                       objectives: np.ndarray, is_feasible: bool, 
+                       start_time: float) -> Dict:
+        """Create result dictionary"""
+        config = self.evaluator.decode_solution(x)
+        
+        return {
+            'method': f'ExpertHeuristic-{rule_name}',
+            'solution_id': sol_id,
+            'sensor': config['sensor'].split('/')[-1],
+            'algorithm': config['algorithm'].split('/')[-1],
+            'f1_total_cost_USD': objectives[0],
+            'f2_one_minus_recall': objectives[1],
+            'f3_latency_seconds': objectives[2],
+            'f4_traffic_disruption_hours': objectives[3],
+            'f5_environmental_impact_kWh_year': objectives[4],
+            'f6_system_reliability_inverse_MTBF': objectives[5],
+            'detection_recall': 1 - objectives[1],
+            'system_MTBF_hours': 1/objectives[5] if objectives[5] > 0 else float('inf'),
+            'is_feasible': is_feasible,
+            'time_seconds': time.time() - start_time
+        }
+
+# ============================================================================
+# COMPARISON AND VISUALIZATION
+# ============================================================================
+
+def compare_baseline_methods(baseline_results: Dict[str, pd.DataFrame], 
+                           pareto_results: pd.DataFrame,
+                           output_dir: str = './results/baseline'):
+    """Compare baseline methods with Pareto-optimal results"""
+    
+    # Create output directory
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    
+    # Combine all results
+    all_baseline = pd.concat([df for df in baseline_results.values()], 
+                            ignore_index=True)
+    
+    # Create comparison visualizations
+    fig = plt.figure(figsize=(20, 16))
+    
+    # 1. Method comparison - feasible solutions
+    ax1 = plt.subplot(3, 3, 1)
+    method_feasible = all_baseline.groupby('method')['is_feasible'].agg(['sum', 'count'])
+    method_feasible['percentage'] = method_feasible['sum'] / method_feasible['count'] * 100
+    
+    method_feasible['percentage'].plot(kind='bar', ax=ax1, color='skyblue')
+    ax1.set_ylabel('Feasible Solutions (%)', fontsize=12)
+    ax1.set_title('Feasibility Rate by Method', fontsize=14)
+    ax1.set_xticklabels(ax1.get_xticklabels(), rotation=45, ha='right')
+    
+    # 2. Objective space coverage - Cost vs Recall
+    ax2 = plt.subplot(3, 3, 2)
+    
+    # Plot Pareto front
+    ax2.scatter(pareto_results['f1_total_cost_USD']/1000, 
+               pareto_results['detection_recall'],
+               c='red', s=100, alpha=0.6, label='NSGA-II Pareto', 
+               edgecolors='black', linewidth=1)
+    
+    # Plot baseline methods
+    colors = plt.cm.tab10(np.arange(len(baseline_results)))
+    for i, (method, df) in enumerate(baseline_results.items()):
+        feasible = df[df['is_feasible']]
+        if len(feasible) > 0:
+            ax2.scatter(feasible['f1_total_cost_USD']/1000,
+                       feasible['detection_recall'],
+                       c=[colors[i]], s=50, alpha=0.5, 
+                       label=method, marker='o')
+    
+    ax2.set_xlabel('Total Cost (k$)', fontsize=12)
+    ax2.set_ylabel('Detection Recall', fontsize=12)
+    ax2.set_title('Cost vs Performance Trade-off', fontsize=14)
+    ax2.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    ax2.grid(True, alpha=0.3)
+    
+    # 3. Sustainability comparison
+    ax3 = plt.subplot(3, 3, 3)
+    
+    ax3.scatter(pareto_results['f5_environmental_impact_kWh_year']/1000,
+               pareto_results['system_MTBF_hours']/8760,
+               c='red', s=100, alpha=0.6, label='NSGA-II Pareto',
+               edgecolors='black', linewidth=1)
+    
+    for i, (method, df) in enumerate(baseline_results.items()):
+        feasible = df[df['is_feasible']]
+        if len(feasible) > 0:
+            ax3.scatter(feasible['f5_environmental_impact_kWh_year']/1000,
+                       feasible['system_MTBF_hours']/8760,
+                       c=[colors[i]], s=50, alpha=0.5,
+                       label=method, marker='o')
+    
+    ax3.set_xlabel('Annual Energy (MWh)', fontsize=12)
+    ax3.set_ylabel('System MTBF (years)', fontsize=12)
+    ax3.set_title('Sustainability vs Reliability', fontsize=14)
+    ax3.grid(True, alpha=0.3)
+    
+    # 4. Hypervolume comparison (simplified)
+    ax4 = plt.subplot(3, 3, 4)
+    
+    hypervolumes = {}
+    ref_point = np.array([2e6, 0.4, 100, 200, 100000, 0.001])  # Reference point
+    
+    # Calculate hypervolume for each method
+    for method, df in baseline_results.items():
+        feasible = df[df['is_feasible']]
+        if len(feasible) > 0:
+            # Simplified hypervolume (product of normalized ranges)
+            obj_cols = ['f1_total_cost_USD', 'f2_one_minus_recall', 
+                       'f3_latency_seconds', 'f4_traffic_disruption_hours',
+                       'f5_environmental_impact_kWh_year', 'f6_system_reliability_inverse_MTBF']
+            
+            min_point = feasible[obj_cols].min()
+            hv = np.prod(ref_point - min_point)
+            hypervolumes[method] = hv
+    
+    # Add NSGA-II
+    min_point_pareto = pareto_results[['f1_total_cost_USD', 'f2_one_minus_recall',
+                                      'f3_latency_seconds', 'f4_traffic_disruption_hours',
+                                      'f5_environmental_impact_kWh_year', 
+                                      'f6_system_reliability_inverse_MTBF']].min()
+    hypervolumes['NSGA-II'] = np.prod(ref_point - min_point_pareto)
+    
+    # Normalize and plot
+    max_hv = max(hypervolumes.values())
+    norm_hv = {k: v/max_hv for k, v in hypervolumes.items()}
+    
+    bars = ax4.bar(norm_hv.keys(), norm_hv.values(), color='lightgreen')
+    bars[-1].set_color('red')  # Highlight NSGA-II
+    ax4.set_ylabel('Normalized Hypervolume', fontsize=12)
+    ax4.set_title('Solution Quality Comparison', fontsize=14)
+    ax4.set_xticklabels(ax4.get_xticklabels(), rotation=45, ha='right')
+    ax4.set_ylim(0, 1.1)
+    
+    # 5. Computation time comparison
+    ax5 = plt.subplot(3, 3, 5)
+    
+    time_data = []
+    for method, df in baseline_results.items():
+        time_data.append({
+            'Method': method,
+            'Total Time (s)': df['time_seconds'].max(),
+            'Solutions': len(df),
+            'Time per Solution (s)': df['time_seconds'].max() / len(df)
+        })
+    
+    time_df = pd.DataFrame(time_data)
+    
+    ax5_twin = ax5.twinx()
+    
+    x = np.arange(len(time_df))
+    width = 0.35
+    
+    bars1 = ax5.bar(x - width/2, time_df['Total Time (s)'], width, 
+                    label='Total Time', color='skyblue')
+    bars2 = ax5_twin.bar(x + width/2, time_df['Solutions'], width,
+                        label='# Solutions', color='lightcoral')
+    
+    ax5.set_xlabel('Method', fontsize=12)
+    ax5.set_ylabel('Total Time (seconds)', fontsize=12)
+    ax5_twin.set_ylabel('Number of Solutions', fontsize=12)
+    ax5.set_title('Computational Efficiency', fontsize=14)
+    ax5.set_xticks(x)
+    ax5.set_xticklabels(time_df['Method'], rotation=45, ha='right')
+    
+    # Combined legend
+    lines1, labels1 = ax5.get_legend_handles_labels()
+    lines2, labels2 = ax5_twin.get_legend_handles_labels()
+    ax5.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
+    
+    # 6. Best solutions comparison table
+    ax6 = plt.subplot(3, 3, 6)
+    ax6.axis('tight')
+    ax6.axis('off')
+    
+    # Find best solution for each method
+    best_solutions = []
+    for method, df in baseline_results.items():
+        feasible = df[df['is_feasible']]
+        if len(feasible) > 0:
+            # Simple quality metric (lower is better)
+            feasible['quality'] = (
+                feasible['f1_total_cost_USD'] / 1e6 +
+                feasible['f2_one_minus_recall'] * 10 +
+                feasible['f3_latency_seconds'] / 10 +
+                feasible['f5_environmental_impact_kWh_year'] / 50000
+            )
+            best = feasible.loc[feasible['quality'].idxmin()]
+            best_solutions.append({
+                'Method': method,
+                'Cost (k$)': f"{best['f1_total_cost_USD']/1000:.0f}",
+                'Recall': f"{best['detection_recall']:.3f}",
+                'Energy (MWh)': f"{best['f5_environmental_impact_kWh_year']/1000:.1f}",
+                'MTBF (yr)': f"{best['system_MTBF_hours']/8760:.1f}"
+            })
+    
+    # Add best NSGA-II
+    best_pareto = pareto_results.loc[
+        (pareto_results['f1_total_cost_USD'] / 1e6 +
+         pareto_results['f2_one_minus_recall'] * 10 +
+         pareto_results['f3_latency_seconds'] / 10 +
+         pareto_results['f5_environmental_impact_kWh_year'] / 50000).idxmin()
+    ]
+    
+    best_solutions.append({
+        'Method': 'NSGA-II',
+        'Cost (k$)': f"{best_pareto['f1_total_cost_USD']/1000:.0f}",
+        'Recall': f"{best_pareto['detection_recall']:.3f}",
+        'Energy (MWh)': f"{best_pareto['f5_environmental_impact_kWh_year']/1000:.1f}",
+        'MTBF (yr)': f"{best_pareto['system_MTBF_hours']/8760:.1f}"
+    })
+    
+    best_df = pd.DataFrame(best_solutions)
+    
+    table = ax6.table(cellText=best_df.values,
+                     colLabels=best_df.columns,
+                     cellLoc='center',
+                     loc='center')
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
+    table.scale(1, 2)
+    
+    # Color NSGA-II row
+    for j in range(len(best_df.columns)):
+        table[(len(best_df), j)].set_facecolor('#ffcccc')
+    
+    ax6.set_title('Best Solution Comparison', fontsize=14)
+    
+    # 7-9. Additional objective comparisons
+    for idx, (obj_name, obj_col, scale) in enumerate([
+        ('Latency', 'f3_latency_seconds', 1),
+        ('Traffic Disruption', 'f4_traffic_disruption_hours', 1),
+        ('All Objectives', None, None)
+    ]):
+        ax = plt.subplot(3, 3, 7 + idx)
+        
+        if obj_col:
+            # Box plot for single objective
+            data_to_plot = []
+            labels_to_plot = []
+            
+            for method, df in baseline_results.items():
+                feasible = df[df['is_feasible']]
+                if len(feasible) > 0:
+                    data_to_plot.append(feasible[obj_col] / scale)
+                    labels_to_plot.append(method)
+            
+            # Add NSGA-II
+            data_to_plot.append(pareto_results[obj_col] / scale)
+            labels_to_plot.append('NSGA-II')
+            
+            bp = ax.boxplot(data_to_plot, labels=labels_to_plot, patch_artist=True)
+            
+            # Color boxes
+            for i, patch in enumerate(bp['boxes']):
+                if i < len(baseline_results):
+                    patch.set_facecolor('lightblue')
+                else:
+                    patch.set_facecolor('lightcoral')
+            
+            ax.set_ylabel(f'{obj_name} ({scale}x)' if scale != 1 else obj_name, fontsize=12)
+            ax.set_title(f'{obj_name} Distribution', fontsize=14)
+            ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
+            ax.grid(True, alpha=0.3, axis='y')
+            
+        else:
+            # Radar chart for all objectives
+            objectives = ['Cost', 'Recall', 'Latency', 'Disruption', 'Energy', 'Reliability']
+            
+            # Calculate average normalized performance
+            method_performance = {}
+            
+            for method, df in list(baseline_results.items())[:3]:  # Top 3 baselines
+                feasible = df[df['is_feasible']]
+                if len(feasible) > 0:
+                    avg_perf = []
+                    avg_perf.append(1 - (feasible['f1_total_cost_USD'].mean() - 100000) / 1900000)
+                    avg_perf.append(feasible['detection_recall'].mean())
+                    avg_perf.append(1 - (feasible['f3_latency_seconds'].mean() - 0.1) / 9.9)
+                    avg_perf.append(1 - (feasible['f4_traffic_disruption_hours'].mean() / 200))
+                    avg_perf.append(1 - (feasible['f5_environmental_impact_kWh_year'].mean() - 1000) / 99000)
+                    avg_perf.append((feasible['system_MTBF_hours'].mean() / 100000))
+                    
+                    method_performance[method] = np.clip(avg_perf, 0, 1)
+            
+            # Add NSGA-II
+            avg_perf = []
+            avg_perf.append(1 - (pareto_results['f1_total_cost_USD'].mean() - 100000) / 1900000)
+            avg_perf.append(pareto_results['detection_recall'].mean())
+            avg_perf.append(1 - (pareto_results['f3_latency_seconds'].mean() - 0.1) / 9.9)
+            avg_perf.append(1 - (pareto_results['f4_traffic_disruption_hours'].mean() / 200))
+            avg_perf.append(1 - (pareto_results['f5_environmental_impact_kWh_year'].mean() - 1000) / 99000)
+            avg_perf.append((pareto_results['system_MTBF_hours'].mean() / 100000))
+            method_performance['NSGA-II'] = np.clip(avg_perf, 0, 1)
+            
+            # Create radar chart
+            angles = np.linspace(0, 2 * np.pi, len(objectives), endpoint=False)
+            angles = np.concatenate([angles, [angles[0]]])
+            
+            ax = plt.subplot(3, 3, 9, projection='polar')
+            
+            for method, performance in method_performance.items():
+                values = np.concatenate([performance, [performance[0]]])
+                ax.plot(angles, values, 'o-', linewidth=2, label=method)
+                ax.fill(angles, values, alpha=0.15)
+            
+            ax.set_xticks(angles[:-1])
+            ax.set_xticklabels(objectives)
+            ax.set_ylim(0, 1)
+            ax.set_title('Multi-Objective Performance', fontsize=14, pad=20)
+            ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1))
+            ax.grid(True)
+    
+    plt.suptitle('Baseline Methods vs NSGA-II Comparison (6 Objectives)', fontsize=18)
+    plt.tight_layout()
+    
+    # Save figure
+    fig.savefig(f'{output_dir}/baseline_comparison_6obj.png', dpi=300, bbox_inches='tight')
+    fig.savefig(f'{output_dir}/baseline_comparison_6obj.pdf', bbox_inches='tight')
+    plt.close(fig)
+    
+    # Save detailed comparison data
+    comparison_summary = {
+        'method_performance': {},
+        'computation_time': {},
+        'solution_quality': {}
     }
+    
+    for method, df in baseline_results.items():
+        feasible = df[df['is_feasible']]
+        comparison_summary['method_performance'][method] = {
+            'total_solutions': len(df),
+            'feasible_solutions': len(feasible),
+            'feasibility_rate': len(feasible) / len(df) if len(df) > 0 else 0,
+            'avg_cost': feasible['f1_total_cost_USD'].mean() if len(feasible) > 0 else np.nan,
+            'avg_recall': feasible['detection_recall'].mean() if len(feasible) > 0 else np.nan,
+            'avg_energy': feasible['f5_environmental_impact_kWh_year'].mean() if len(feasible) > 0 else np.nan,
+            'computation_time': df['time_seconds'].max()
+        }
+    
+    # Add NSGA-II stats
+    comparison_summary['method_performance']['NSGA-II'] = {
+        'total_solutions': len(pareto_results),
+        'feasible_solutions': len(pareto_results),  # All Pareto solutions are feasible
+        'feasibility_rate': 1.0,
+        'avg_cost': pareto_results['f1_total_cost_USD'].mean(),
+        'avg_recall': pareto_results['detection_recall'].mean(),
+        'avg_energy': pareto_results['f5_environmental_impact_kWh_year'].mean(),
+        'computation_time': 'Not available'  # Would need to be passed in
+    }
+    
+    # Save summary
+    with open(f'{output_dir}/comparison_summary.json', 'w') as f:
+        json.dump(comparison_summary, f, indent=2, default=str)
+    
+    logger.info(f"Baseline comparison completed. Results saved to {output_dir}")
 
-    with open('./results/ablation_study_results.json', 'w', encoding='utf-8') as f:
-        json.dump(ablation_result, f, indent=2, cls=UniversalEncoder)
+# ============================================================================
+# MAIN EXECUTION
+# ============================================================================
 
-    logger.info(f"Ablation study complete: {ablation_result['final_statistics']['n_feasible']} "
-                f"feasible solutions found")
+def run_baseline_comparison(ontology_graph: Graph, 
+                          pareto_csv_path: str = './results/pareto_solutions_6d.csv'):
+    """Run all baseline methods and compare with NSGA-II results"""
+    
+    # Configuration
+    config = BaselineConfig()
+    
+    # Create output directory
+    Path(config.output_dir).mkdir(parents=True, exist_ok=True)
+    
+    # Initialize evaluator
+    evaluator = BaselineEvaluator(ontology_graph, config)
+    
+    # Load Pareto results
+    try:
+        pareto_results = pd.read_csv(pareto_csv_path)
+        logger.info(f"Loaded {len(pareto_results)} Pareto-optimal solutions for comparison")
+    except FileNotFoundError:
+        logger.error(f"Could not find Pareto results at {pareto_csv_path}")
+        logger.error("Please run the main optimization first")
+        return
+    
+    # Run baseline methods
+    baseline_results = {}
+    
+    # 1. Random Search
+    logger.info("\n" + "="*60)
+    logger.info("Running Random Search Baseline...")
+    random_baseline = RandomSearchBaseline(evaluator, config)
+    baseline_results['RandomSearch'] = random_baseline.optimize()
+    
+    # 2. Grid Search
+    logger.info("\n" + "="*60)
+    logger.info("Running Grid Search Baseline...")
+    grid_baseline = GridSearchBaseline(evaluator, config)
+    baseline_results['GridSearch'] = grid_baseline.optimize()
+    
+    # 3. Weighted Sum
+    logger.info("\n" + "="*60)
+    logger.info("Running Weighted Sum Baseline...")
+    weighted_baseline = WeightedSumBaseline(evaluator, config)
+    baseline_results['WeightedSum'] = weighted_baseline.optimize()
+    
+    # 4. Expert Heuristic
+    logger.info("\n" + "="*60)
+    logger.info("Running Expert Heuristic Baseline...")
+    expert_baseline = ExpertHeuristicBaseline(evaluator, config)
+    baseline_results['ExpertHeuristic'] = expert_baseline.optimize()
+    
+    # Save individual results
+    for method, df in baseline_results.items():
+        df.to_csv(f"{config.output_dir}/{method.lower()}_results.csv", index=False)
+    
+    # Compare methods
+    logger.info("\n" + "="*60)
+    logger.info("Comparing baseline methods with NSGA-II...")
+    compare_baseline_methods(baseline_results, pareto_results, config.output_dir)
+    
+    # Summary statistics
+    logger.info("\n" + "="*60)
+    logger.info("BASELINE COMPARISON SUMMARY:")
+    logger.info("-"*60)
+    
+    for method, df in baseline_results.items():
+        feasible = df[df['is_feasible']]
+        logger.info(f"\n{method}:")
+        logger.info(f"  Total solutions: {len(df)}")
+        logger.info(f"  Feasible solutions: {len(feasible)} ({len(feasible)/len(df)*100:.1f}%)")
+        
+        if len(feasible) > 0:
+            logger.info(f"  Best cost: ${feasible['f1_total_cost_USD'].min():,.0f}")
+            logger.info(f"  Best recall: {feasible['detection_recall'].max():.3f}")
+            logger.info(f"  Best energy: {feasible['f5_environmental_impact_kWh_year'].min():.0f} kWh/year")
+    
+    logger.info(f"\nNSGA-II (Enhanced Framework):")
+    logger.info(f"  Total solutions: {len(pareto_results)}")
+    logger.info(f"  All Pareto-optimal (100% non-dominated)")
+    logger.info(f"  Cost range: ${pareto_results['f1_total_cost_USD'].min():,.0f} - ${pareto_results['f1_total_cost_USD'].max():,.0f}")
+    logger.info(f"  Recall range: {pareto_results['detection_recall'].min():.3f} - {pareto_results['detection_recall'].max():.3f}")
+    logger.info(f"  Energy range: {pareto_results['f5_environmental_impact_kWh_year'].min():.0f} - {pareto_results['f5_environmental_impact_kWh_year'].max():.0f} kWh/year")
+    
+    logger.info("\n" + "="*60)
+    logger.info("Baseline comparison completed!")
+    
+    return baseline_results
 
-    return ablation_result
+# Run if called directly
+if __name__ == "__main__":
+    # This would typically be called from the main framework
+    # For standalone testing, you would need to load the ontology first
+    print("Please run this through the main framework or provide an ontology graph")
+    print("Example usage:")
+    print("  from baseline_methods import run_baseline_comparison")
+    print("  run_baseline_comparison(ontology_graph, './results/pareto_solutions_6d.csv')")

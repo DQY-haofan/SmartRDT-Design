@@ -1,732 +1,903 @@
+#!/usr/bin/env python3
 """
-Advanced Visualizations Module
-创建用于学术论文的高质量可视化
+Advanced Visualizations for Enhanced RMTwin Multi-Objective Optimization
+Updated for 6 objectives including sustainability metrics
+Compatible with Expert-Enhanced Ontology-Driven Multi-Objective Optimization Framework.py
 """
 
-import pandas as pd
+import os
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+from matplotlib.gridspec import GridSpec
 from mpl_toolkits.mplot3d import Axes3D
-import json
-import os
-import logging
-from matplotlib.patches import Rectangle
-import matplotlib.patches as mpatches
+from matplotlib.patches import Patch
+import matplotlib.cm as cm
+from scipy.stats import gaussian_kde
+import warnings
+warnings.filterwarnings('ignore')
 
-logger = logging.getLogger(__name__)
-
-# Set up matplotlib for academic papers
+# Configure matplotlib for publication quality (matching main framework)
 plt.rcParams.update({
-    'font.size': 12,
-    'axes.labelsize': 14,
+    'font.size': 14,
     'axes.titlesize': 16,
+    'axes.labelsize': 14,
     'xtick.labelsize': 12,
     'ytick.labelsize': 12,
     'legend.fontsize': 12,
     'figure.titlesize': 18,
     'font.family': 'serif',
-    'font.serif': ['Times New Roman'],
+    'font.serif': ['Times New Roman', 'DejaVu Serif'],
     'text.usetex': False,
-    'axes.grid': True,
-    'grid.alpha': 0.3
+    'figure.dpi': 100,
+    'savefig.dpi': 300,
+    'savefig.bbox': 'tight',
+    'lines.linewidth': 2,
+    'lines.markersize': 8,
 })
 
-
-def create_baseline_comparison_plot(all_df, baseline_results, output_dir):
-    """创建基准方法对比图"""
-    logger.info("Creating baseline comparison plot...")
-
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-
-    # Define objective pairs for comparison
-    comparisons = [
-        ('f1_total_cost_USD', 'detection_recall', 'Cost vs Detection Performance', axes[0, 0]),
-        ('f3_latency_seconds', 'detection_recall', 'Latency vs Detection Performance', axes[0, 1]),
-        ('f1_total_cost_USD', 'f3_latency_seconds', 'Cost vs Latency', axes[1, 0]),
-        ('f4_traffic_disruption_hours', 'detection_recall', 'Traffic Disruption vs Detection Performance', axes[1, 1])
-    ]
-
-    for x_col, y_col, title, ax in comparisons:
-        # Plot Pareto front
-        if 'cost' in x_col:
-            x_data = all_df[x_col] / 1000  # Convert to k$
-            x_label = 'Total Cost (k$)'
-        else:
-            x_data = all_df[x_col]
-            x_label = x_col.replace('_', ' ').replace('f1 ', '').replace('f3 ', '').replace('f4 ', '').title()
-
-        y_label = y_col.replace('_', ' ').title()
-
-        # Plot Pareto solutions
-        scatter = ax.scatter(x_data, all_df[y_col],
-                           c='lightgray', s=30, alpha=0.6,
-                           edgecolors='black', linewidth=0.5,
-                           label='NSGA-II Pareto Front')
-
-        # Plot baseline solutions
-        # Greedy baseline
-        greedy = baseline_results['greedy']['objectives']
-        if 'cost' in x_col:
-            greedy_x = greedy['f1_total_cost_USD'] / 1000
-        else:
-            greedy_x = greedy[x_col]
-        greedy_y = greedy[y_col] if y_col in greedy else greedy['detection_recall']
-
-        ax.scatter(greedy_x, greedy_y,
-                  marker='*', s=500, c='red', edgecolors='darkred', linewidth=2,
-                  label='Greedy Cost-Min', zorder=10)
-
-        # Weighted sum baseline
-        weighted = baseline_results['weighted_sum']['objectives']
-        if 'cost' in x_col:
-            weighted_x = weighted['f1_total_cost_USD'] / 1000
-        else:
-            weighted_x = weighted[x_col]
-        weighted_y = weighted[y_col] if y_col in weighted else weighted['detection_recall']
-
-        ax.scatter(weighted_x, weighted_y,
-                  marker='s', s=300, c='blue', edgecolors='darkblue', linewidth=2,
-                  label='Weighted-Sum', zorder=10)
-
-        # Add constraint lines if applicable
-        if y_col == 'detection_recall':
-            ax.axhline(y=0.8, color='green', linestyle='--', alpha=0.7,
-                      label='Min Recall Constraint')
-        if x_col == 'f3_latency_seconds':
-            ax.axvline(x=60, color='orange', linestyle='--', alpha=0.7,
-                      label='Max Latency Constraint')
-
-        ax.set_xlabel(x_label)
-        ax.set_ylabel(y_label)
-        ax.set_title(title)
-        ax.legend(loc='best')
-        ax.grid(True, alpha=0.3)
-
-    plt.tight_layout()
-
-    # Save in both formats
-    fig.savefig(f'{output_dir}/png/baseline_comparison.png', dpi=300, bbox_inches='tight')
-    fig.savefig(f'{output_dir}/pdf/baseline_comparison.pdf', bbox_inches='tight')
-    plt.close(fig)
-
-    logger.info("Baseline comparison plot saved")
-
-
-def create_decision_variable_impact_analysis(df, output_dir):
-    """创建决策变量影响分析图"""
-    logger.info("Creating decision variable impact analysis...")
-
-    fig, axes = plt.subplots(2, 3, figsize=(18, 10))
-    axes = axes.flatten()
-
-    # Sensor impact on objectives
-    ax1 = axes[0]
-    sensor_data = df.groupby('sensor').agg({
-        'detection_recall': 'mean',
-        'f1_total_cost_USD': 'mean'
-    }).reset_index()
-    sensor_data = sensor_data.sort_values('detection_recall', ascending=False)[:10]
-
-    x = np.arange(len(sensor_data))
-    width = 0.35
-
-    ax1_twin = ax1.twinx()
-
-    bars1 = ax1.bar(x - width/2, sensor_data['detection_recall'], width,
-                    label='Avg Recall', color='green', alpha=0.7)
-    bars2 = ax1_twin.bar(x + width/2, sensor_data['f1_total_cost_USD']/1000, width,
-                        label='Avg Cost (k$)', color='red', alpha=0.7)
-
-    ax1.set_xlabel('Sensor Type')
-    ax1.set_ylabel('Average Detection Recall', color='green')
-    ax1_twin.set_ylabel('Average Cost (k$)', color='red')
-    ax1.set_xticks(x)
-    ax1.set_xticklabels([s.replace('instances#', '')[:15] for s in sensor_data['sensor']],
-                       rotation=45, ha='right')
-    ax1.set_title('Sensor Impact on Key Objectives')
-    ax1.tick_params(axis='y', labelcolor='green')
-    ax1_twin.tick_params(axis='y', labelcolor='red')
-
-    # Algorithm impact
-    ax2 = axes[1]
-    algo_impact = df.groupby('algorithm')['detection_recall'].describe()
-    algo_impact = algo_impact.sort_values('mean', ascending=False)[:10]
-
-    positions = range(len(algo_impact))
-    ax2.boxplot([df[df['algorithm'] == algo]['detection_recall'].values
-                for algo in algo_impact.index],
-               positions=positions,
-               patch_artist=True,
-               boxprops=dict(facecolor='lightblue', alpha=0.7))
-
-    ax2.set_xticks(positions)
-    ax2.set_xticklabels([a.replace('instances#', '')[:12] for a in algo_impact.index],
-                       rotation=45, ha='right')
-    ax2.set_ylabel('Detection Recall')
-    ax2.set_title('Algorithm Performance Distribution')
-
-    # LOD impact - Fixed version
-    ax3 = axes[2]
-    lod_impact = df.groupby('geometric_LOD').agg({
-        'detection_recall': 'mean',
-        'f3_latency_seconds': 'mean',
-        'f1_total_cost_USD': 'mean'
-    })
-
-    # Only use LOD levels that exist in the data
-    available_lods = list(lod_impact.index)
-    x = np.arange(len(available_lods))
-
-    ax3.bar(x - 0.2, lod_impact['detection_recall'], 0.2,
-           label='Recall', color='green')
-    ax3.bar(x, lod_impact['f3_latency_seconds']/100, 0.2,
-           label='Latency/100', color='orange')
-    ax3.bar(x + 0.2, lod_impact['f1_total_cost_USD']/1000000, 0.2,
-           label='Cost (M$)', color='red')
-
-    ax3.set_xticks(x)
-    ax3.set_xticklabels(available_lods)
-    ax3.set_ylabel('Normalized Values')
-    ax3.set_title('LOD Impact on Multiple Objectives')
-    ax3.legend()
-
-    # Crew size vs cost
-    ax4 = axes[3]
-    crew_impact = df.groupby('crew_size')['f1_total_cost_USD'].mean() / 1000
-    ax4.plot(crew_impact.index, crew_impact.values, 'o-', linewidth=2, markersize=8)
-    ax4.set_xlabel('Crew Size')
-    ax4.set_ylabel('Average Total Cost (k$)')
-    ax4.set_title('Crew Size Impact on Cost')
-    ax4.set_xticks(range(1, 11))
-
-    # Inspection cycle distribution
-    ax5 = axes[4]
-    cycle_bins = [1, 7, 30, 90, 180, 365]
-    cycle_labels = ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Semi-Annual']
-    df['cycle_category'] = pd.cut(df['inspection_cycle_days'], bins=cycle_bins, labels=cycle_labels)
-    cycle_counts = df['cycle_category'].value_counts()
-
-    colors = plt.cm.YlOrRd(np.linspace(0.3, 0.9, len(cycle_counts)))
-    ax5.pie(cycle_counts.values, labels=cycle_counts.index, colors=colors,
-           autopct='%1.1f%%', startangle=90)
-    ax5.set_title('Distribution of Inspection Frequencies')
-
-    # Data rate impact
-    ax6 = axes[5]
-    # Bin data rates
-    rate_bins = [0, 10, 30, 50, 70, 100]
-    df['rate_bin'] = pd.cut(df['data_rate_Hz'], bins=rate_bins)
-    rate_impact = df.groupby('rate_bin')['detection_recall'].mean()
-
-    x = range(len(rate_impact))
-    ax6.bar(x, rate_impact.values, color='skyblue', edgecolor='navy')
-    ax6.set_xticks(x)
-    ax6.set_xticklabels([f'{int(b.left)}-{int(b.right)}' for b in rate_impact.index],
-                       rotation=45)
-    ax6.set_xlabel('Data Rate (Hz)')
-    ax6.set_ylabel('Average Detection Recall')
-    ax6.set_title('Data Rate Impact on Detection Performance')
-
-    plt.tight_layout()
-
-    # Save
-    fig.savefig(f'{output_dir}/png/decision_variable_impact.png', dpi=300, bbox_inches='tight')
-    fig.savefig(f'{output_dir}/pdf/decision_variable_impact.pdf', bbox_inches='tight')
-    plt.close(fig)
-
-    logger.info("Decision variable impact analysis saved")
-
-
-def create_pareto_front_3d(df, output_dir):
-    """创建3D帕累托前沿可视化"""
-    logger.info("Creating 3D Pareto front visualization...")
-
-    fig = plt.figure(figsize=(12, 9))
-    ax = fig.add_subplot(111, projection='3d')
-
-    # Select three objectives for 3D plot
-    x = df['f1_total_cost_USD'] / 1000  # k$
-    y = df['detection_recall']
-    z = df['f3_latency_seconds']
-
-    # Color by fourth objective
-    c = df['f4_traffic_disruption_hours']
-
-    scatter = ax.scatter(x, y, z, c=c, cmap='viridis', s=50, alpha=0.7,
-                        edgecolors='black', linewidth=0.5)
-
-    ax.set_xlabel('Total Cost (k$)', labelpad=10)
-    ax.set_ylabel('Detection Recall', labelpad=10)
-    ax.set_zlabel('Latency (seconds)', labelpad=10)
-    ax.set_title('3D Pareto Front Visualization\n(Color: Traffic Disruption Hours)')
-
-    # Add colorbar
-    cbar = plt.colorbar(scatter, ax=ax, pad=0.1)
-    cbar.set_label('Traffic Disruption (hours)', rotation=270, labelpad=20)
-
-    # Adjust viewing angle
-    ax.view_init(elev=20, azim=45)
-
-    # Save
-    fig.savefig(f'{output_dir}/png/pareto_front_3d.png', dpi=300, bbox_inches='tight')
-    fig.savefig(f'{output_dir}/pdf/pareto_front_3d.pdf', bbox_inches='tight')
-    plt.close(fig)
-
-    logger.info("3D Pareto front visualization saved")
-
-
-def create_constraint_satisfaction_analysis(all_df, reasonable_df, output_dir):
-    """创建约束满足分析图"""
-    logger.info("Creating constraint satisfaction analysis...")
-
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-
-    # Feasibility distribution
-    ax1 = axes[0, 0]
-    feasible_count = all_df['is_feasible'].sum()
-    infeasible_count = len(all_df) - feasible_count
-
-    wedges, texts, autotexts = ax1.pie([feasible_count, infeasible_count],
-                                       labels=['Feasible', 'Infeasible'],
-                                       colors=['#2ecc71', '#e74c3c'],
-                                       autopct='%1.1f%%',
-                                       startangle=90,
-                                       textprops={'fontsize': 12})
-    ax1.set_title('Solution Feasibility Distribution')
-
-    # Constraint violations scatter
-    ax2 = axes[0, 1]
-    scatter = ax2.scatter(all_df['constraint_violation_g1_latency'],
-                         all_df['constraint_violation_g2_recall'],
-                         c=all_df['is_feasible'],
-                         cmap='RdYlGn',
-                         alpha=0.6,
-                         edgecolors='k',
-                         linewidth=0.5)
-
-    # Add feasible region
-    rect = Rectangle((-100, -100), 100, 100, linewidth=2,
-                    edgecolor='green', facecolor='green', alpha=0.1)
-    ax2.add_patch(rect)
-
-    ax2.axhline(y=0, color='k', linestyle='--', alpha=0.5)
-    ax2.axvline(x=0, color='k', linestyle='--', alpha=0.5)
-    ax2.set_xlabel('G1: Latency Constraint Violation (s)')
-    ax2.set_ylabel('G2: Recall Constraint Violation')
-    ax2.set_title('Constraint Violations Distribution')
-    ax2.set_xlim(-10, max(all_df['constraint_violation_g1_latency']) * 1.1)
-    ax2.set_ylim(-0.1, max(all_df['constraint_violation_g2_recall']) * 1.1)
-    ax2.text(-5, -0.05, 'Feasible\nRegion', ha='center', va='center',
-            bbox=dict(boxstyle='round', facecolor='green', alpha=0.2))
-
-    # Quality distribution
-    ax3 = axes[1, 0]
-    quality_categories = ['All Solutions', 'Feasible Only', 'High Quality\n(Recall≥0.8, Latency≤60s)']
-    counts = [len(all_df), feasible_count, len(reasonable_df)]
-    colors = ['lightgray', '#3498db', '#2ecc71']
-
-    bars = ax3.bar(quality_categories, counts, color=colors, edgecolor='black')
-    ax3.set_ylabel('Number of Solutions')
-    ax3.set_title('Solution Quality Distribution')
-
-    # Add value labels on bars
-    for bar, count in zip(bars, counts):
-        height = bar.get_height()
-        ax3.text(bar.get_x() + bar.get_width()/2., height,
-                f'{count}', ha='center', va='bottom')
-
-    # Performance vs feasibility
-    ax4 = axes[1, 1]
-
-    # Separate feasible and infeasible solutions
-    feasible_df = all_df[all_df['is_feasible']]
-    infeasible_df = all_df[~all_df['is_feasible']]
-
-    ax4.scatter(infeasible_df['f1_total_cost_USD']/1000,
-               infeasible_df['detection_recall'],
-               c='red', s=30, alpha=0.5, label='Infeasible')
-    ax4.scatter(feasible_df['f1_total_cost_USD']/1000,
-               feasible_df['detection_recall'],
-               c='green', s=30, alpha=0.7, label='Feasible')
-
-    ax4.set_xlabel('Total Cost (k$)')
-    ax4.set_ylabel('Detection Recall')
-    ax4.set_title('Cost-Performance Trade-off by Feasibility')
-    ax4.legend()
-
-    plt.tight_layout()
-
-    # Save
-    fig.savefig(f'{output_dir}/png/constraint_satisfaction_analysis.png', dpi=300, bbox_inches='tight')
-    fig.savefig(f'{output_dir}/pdf/constraint_satisfaction_analysis.pdf', bbox_inches='tight')
-    plt.close(fig)
-
-    logger.info("Constraint satisfaction analysis saved")
-
-
-def create_solution_ranking_table(reasonable_df, output_dir):
-    """创建前10个解决方案的排名表"""
-    logger.info("Creating solution ranking table...")
-
-    if reasonable_df.empty:
-        logger.warning("No reasonable solutions to rank")
-        return
-
-    # Calculate efficiency score (recall per million dollars)
-    reasonable_df['efficiency_score'] = reasonable_df['detection_recall'] / (reasonable_df['f1_total_cost_USD'] / 1000000)
-
-    # Sort by efficiency score
-    top_solutions = reasonable_df.nlargest(10, 'efficiency_score')
-
-    # Create figure with table
-    fig, ax = plt.subplots(figsize=(16, 8))
-    ax.axis('tight')
-    ax.axis('off')
-
-    # Prepare table data
-    table_data = []
-    headers = ['Rank', 'Sensor', 'Algorithm', 'LOD', 'Cost (k$)',
-              'Recall', 'Latency (s)', 'Disruption (h)', 'Efficiency']
-
-    for i, (_, row) in enumerate(top_solutions.iterrows()):
-        table_data.append([
-            i + 1,
-            row['sensor'].replace('instances#', '')[:20],
-            row['algorithm'].replace('instances#', '')[:20],
-            row['geometric_LOD'],
-            f"{row['f1_total_cost_USD']/1000:.1f}",
-            f"{row['detection_recall']:.3f}",
-            f"{row['f3_latency_seconds']:.1f}",
-            f"{row['f4_traffic_disruption_hours']:.1f}",
-            f"{row['efficiency_score']:.2f}"
-        ])
-
-    # Create table
-    table = ax.table(cellText=table_data,
-                    colLabels=headers,
-                    cellLoc='center',
-                    loc='center',
-                    bbox=[0, 0, 1, 1])
-
-    # Style the table
-    table.auto_set_font_size(False)
-    table.set_fontsize(10)
-    table.scale(1.2, 1.5)
-
-    # Color code the header
-    for i in range(len(headers)):
-        table[(0, i)].set_facecolor('#3498db')
-        table[(0, i)].set_text_props(weight='bold', color='white')
-
-    # Alternate row colors
-    for i in range(1, len(table_data) + 1):
-        if i % 2 == 0:
-            for j in range(len(headers)):
-                table[(i, j)].set_facecolor('#ecf0f1')
-
-    ax.set_title('Top 10 Most Efficient RMTwin Configurations\n(Efficiency = Recall / Cost in M$)',
-                fontsize=16, pad=20)
-
-    plt.tight_layout()
-
-    # Save
-    fig.savefig(f'{output_dir}/png/top_solutions_table.png', dpi=300, bbox_inches='tight')
-    fig.savefig(f'{output_dir}/pdf/top_solutions_table.pdf', bbox_inches='tight')
-    plt.close(fig)
-
-    logger.info("Solution ranking table saved")
-
-
-def create_convergence_comparison(output_dir):
-    """创建收敛性对比图（如果有ablation study结果）"""
-    try:
-        with open(f'{output_dir}/ablation_study_results.json', 'r') as f:
-            ablation_data = json.load(f)
-
-        logger.info("Creating convergence comparison plot...")
-
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
-
-        # Extract convergence data
-        generations = [d['generation'] for d in ablation_data['convergence_history']]
-        cv_avg = [d['cv_average'] for d in ablation_data['convergence_history']]
-        n_feasible = [d['n_feasible'] for d in ablation_data['convergence_history']]
-
-        # Plot constraint violation
-        ax1.plot(generations, cv_avg, 'r-', linewidth=2, label='No Pre-filtering')
-        ax1.axhline(y=0, color='green', linestyle='--', alpha=0.7, label='Feasibility Threshold')
-        ax1.set_xlabel('Generation')
-        ax1.set_ylabel('Average Constraint Violation')
-        ax1.set_title('Convergence of Constraint Satisfaction')
-        ax1.legend()
-        ax1.grid(True, alpha=0.3)
-
-        # Plot feasible solutions count
-        ax2.plot(generations, n_feasible, 'b-', linewidth=2, label='No Pre-filtering')
-        ax2.set_xlabel('Generation')
-        ax2.set_ylabel('Number of Feasible Solutions')
-        ax2.set_title('Evolution of Feasible Solutions')
-        ax2.legend()
-        ax2.grid(True, alpha=0.3)
-
-        plt.tight_layout()
-
-        # Save
-        fig.savefig(f'{output_dir}/png/convergence_comparison.png', dpi=300, bbox_inches='tight')
-        fig.savefig(f'{output_dir}/pdf/convergence_comparison.pdf', bbox_inches='tight')
-        plt.close(fig)
-
-        logger.info("Convergence comparison plot saved")
-
-    except FileNotFoundError:
-        logger.info("No ablation study results found, skipping convergence comparison")
-
-
-
-
-# 在 advanced_visualizations.py 中需要修改的函数
-
-def create_all_visualizations(df, baseline_results, output_dir):
-    """创建所有可视化（修改版）"""
-    # Create directories
+sns.set_style("whitegrid")
+sns.set_context("paper", font_scale=1.2)
+
+# ============================================================================
+# MAIN VISUALIZATION FUNCTIONS (Updated for 6 objectives)
+# ============================================================================
+
+def create_enhanced_3d_pareto_visualization(df, output_dir='./results'):
+    """Create multiple 3D visualizations showcasing different objective combinations"""
+    
+    # Ensure output directories exist
     os.makedirs(f'{output_dir}/png', exist_ok=True)
     os.makedirs(f'{output_dir}/pdf', exist_ok=True)
+    
+    # Define interesting 3D combinations
+    combinations = [
+        # (x, y, z, color_by, title)
+        ('f1_total_cost_USD', 'detection_recall', 'f3_latency_seconds', 'f5_environmental_impact_kWh_year',
+         'Performance-Cost-Efficiency Trade-off\n(Color: Environmental Impact)'),
+        ('f1_total_cost_USD', 'f5_environmental_impact_kWh_year', 'system_MTBF_hours', 'detection_recall',
+         'Sustainability-Reliability-Cost Trade-off\n(Color: Detection Performance)'),
+        ('detection_recall', 'f3_latency_seconds', 'f4_traffic_disruption_hours', 'f1_total_cost_USD',
+         'Operational Performance Trade-offs\n(Color: Total Cost)'),
+        ('f5_environmental_impact_kWh_year', 'system_MTBF_hours', 'detection_recall', 'f1_total_cost_USD',
+         'Sustainability-Reliability-Performance\n(Color: Total Cost)')
+    ]
+    
+    for idx, (x_col, y_col, z_col, color_col, title) in enumerate(combinations):
+        fig = plt.figure(figsize=(14, 10))
+        ax = fig.add_subplot(111, projection='3d')
+        
+        # Scale data for better visualization
+        x_data = df[x_col] / 1000 if 'cost' in x_col.lower() else df[x_col]
+        y_data = df[y_col] / 1000 if 'environmental' in y_col.lower() else df[y_col]
+        z_data = df[z_col] / 1000 if 'MTBF' in z_col else df[z_col]
+        color_data = df[color_col] / 1000 if 'cost' in color_col.lower() or 'environmental' in color_col.lower() else df[color_col]
+        
+        # Create scatter plot
+        scatter = ax.scatter(x_data, y_data, z_data,
+                           c=color_data, cmap='viridis',
+                           s=100, alpha=0.7, edgecolors='black', linewidth=0.5)
+        
+        # Labels
+        x_label = x_col.replace('_', ' ').replace('f1 ', '').replace('USD', '(k$)')
+        y_label = y_col.replace('_', ' ').replace('f5 ', '').replace('kWh year', '(MWh/year)')
+        z_label = z_col.replace('_', ' ').replace('f3 ', '').replace('hours', '(k hours)')
+        color_label = color_col.replace('_', ' ').replace('f1 ', '').replace('f5 ', '')
+        
+        ax.set_xlabel(x_label, fontsize=14, labelpad=10)
+        ax.set_ylabel(y_label, fontsize=14, labelpad=10)
+        ax.set_zlabel(z_label, fontsize=14, labelpad=10)
+        ax.set_title(title, fontsize=16, pad=20)
+        
+        # Colorbar
+        cbar = plt.colorbar(scatter, ax=ax, pad=0.1, shrink=0.8)
+        cbar.set_label(color_label, fontsize=12, rotation=270, labelpad=20)
+        
+        # Set viewing angle
+        ax.view_init(elev=20, azim=45)
+        
+        # Save
+        plt.tight_layout()
+        fig.savefig(f'{output_dir}/png/3d_pareto_{idx+1}.png', dpi=300, bbox_inches='tight')
+        fig.savefig(f'{output_dir}/pdf/3d_pareto_{idx+1}.pdf', bbox_inches='tight')
+        plt.close(fig)
+    
+    print(f"Created {len(combinations)} 3D Pareto visualizations")
 
-    # 使用过滤获得高质量解
-    high_quality_df = df[df['is_high_quality']] if 'is_high_quality' in df.columns else df
-
-    # Create all visualizations
-    create_baseline_comparison_plot(df, baseline_results, output_dir)
-    create_decision_variable_impact_analysis(df, output_dir)
-    create_pareto_front_3d(df, output_dir)
-    create_constraint_satisfaction_analysis(df, high_quality_df, output_dir)
-    create_solution_ranking_table(high_quality_df, output_dir)
-    create_convergence_comparison(output_dir)
-    create_comprehensive_report(df, high_quality_df, baseline_results, output_dir)
-
-    logger.info("All visualizations complete!")
-
-
-def create_constraint_satisfaction_analysis(df, high_quality_df, output_dir):
-    """创建约束满足分析图（修改版）"""
-    logger.info("Creating constraint satisfaction analysis...")
-
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-
-    # Feasibility distribution
-    ax1 = axes[0, 0]
-    feasible_count = df['is_feasible'].sum()
-    infeasible_count = len(df) - feasible_count
-
-    wedges, texts, autotexts = ax1.pie([feasible_count, infeasible_count],
-                                       labels=['Feasible', 'Infeasible'],
-                                       colors=['#2ecc71', '#e74c3c'],
-                                       autopct='%1.1f%%',
-                                       startangle=90,
-                                       textprops={'fontsize': 12})
-    ax1.set_title('Solution Feasibility Distribution')
-
-    # Constraint violations scatter
-    ax2 = axes[0, 1]
-    scatter = ax2.scatter(df['constraint_violation_g1_latency'],
-                          df['constraint_violation_g2_recall'],
-                          c=df['is_feasible'],
-                          cmap='RdYlGn',
-                          alpha=0.6,
-                          edgecolors='k',
-                          linewidth=0.5)
-
-    # Add feasible region
-    rect = Rectangle((-100, -100), 100, 100, linewidth=2,
-                     edgecolor='green', facecolor='green', alpha=0.1)
-    ax2.add_patch(rect)
-
-    ax2.axhline(y=0, color='k', linestyle='--', alpha=0.5)
-    ax2.axvline(x=0, color='k', linestyle='--', alpha=0.5)
-    ax2.set_xlabel('G1: Latency Constraint Violation (s)')
-    ax2.set_ylabel('G2: Recall Constraint Violation')
-    ax2.set_title('Constraint Violations Distribution')
-    ax2.set_xlim(-10, max(df['constraint_violation_g1_latency']) * 1.1)
-    ax2.set_ylim(-0.1, max(df['constraint_violation_g2_recall']) * 1.1)
-    ax2.text(-5, -0.05, 'Feasible\nRegion', ha='center', va='center',
-             bbox=dict(boxstyle='round', facecolor='green', alpha=0.2))
-
-    # Quality distribution
-    ax3 = axes[1, 0]
-    quality_categories = ['All Solutions', 'Feasible Only', 'High Quality\n(Min Requirements)']
-    counts = [len(df), feasible_count, len(high_quality_df)]
-    colors = ['lightgray', '#3498db', '#2ecc71']
-
-    bars = ax3.bar(quality_categories, counts, color=colors, edgecolor='black')
-    ax3.set_ylabel('Number of Solutions')
-    ax3.set_title('Solution Quality Distribution')
-
-    # Add value labels on bars
-    for bar, count in zip(bars, counts):
-        height = bar.get_height()
-        ax3.text(bar.get_x() + bar.get_width() / 2., height,
-                 f'{count}', ha='center', va='bottom')
-
-    # Performance vs feasibility
-    ax4 = axes[1, 1]
-
-    # Separate feasible and infeasible solutions
-    feasible_df = df[df['is_feasible']]
-    infeasible_df = df[~df['is_feasible']]
-
-    if not infeasible_df.empty:
-        ax4.scatter(infeasible_df['f1_total_cost_USD'] / 1000,
-                    infeasible_df['detection_recall'],
-                    c='red', s=30, alpha=0.5, label='Infeasible')
-    if not feasible_df.empty:
-        ax4.scatter(feasible_df['f1_total_cost_USD'] / 1000,
-                    feasible_df['detection_recall'],
-                    c='green', s=30, alpha=0.7, label='Feasible')
-
-    ax4.set_xlabel('Total Cost (k$)')
-    ax4.set_ylabel('Detection Recall')
-    ax4.set_title('Cost-Performance Trade-off by Feasibility')
-    ax4.legend()
-
+def create_decision_variable_impact_analysis(df, output_dir='./results'):
+    """Analyze the impact of each decision variable on all 6 objectives"""
+    
+    # Create figure with subplots for each objective
+    fig = plt.figure(figsize=(24, 16))
+    gs = GridSpec(4, 3, figure=fig, hspace=0.3, wspace=0.25)
+    
+    # Decision variables to analyze
+    decision_vars = [
+        ('sensor', 'Sensor Type', True),
+        ('algorithm', 'Algorithm', True),
+        ('storage', 'Storage System', True),
+        ('communication', 'Communication', True),
+        ('deployment', 'Deployment', True),
+        ('geometric_LOD', 'Geometric LOD', True),
+        ('condition_LOD', 'Condition LOD', True),
+        ('crew_size', 'Crew Size', False),
+        ('inspection_cycle_days', 'Inspection Cycle (days)', False),
+        ('data_rate_Hz', 'Data Rate (Hz)', False),
+        ('detection_threshold', 'Detection Threshold', False)
+    ]
+    
+    # Objectives to analyze
+    objectives = [
+        ('f1_total_cost_USD', 'Total Cost ($)', 1000),
+        ('detection_recall', 'Detection Recall', 1),
+        ('f3_latency_seconds', 'Latency (s)', 1),
+        ('f4_traffic_disruption_hours', 'Traffic Disruption (h)', 1),
+        ('f5_environmental_impact_kWh_year', 'Environmental Impact (kWh/y)', 1000),
+        ('system_MTBF_hours', 'System MTBF (hours)', 1000)
+    ]
+    
+    for var_idx, (var, var_label, is_categorical) in enumerate(decision_vars):
+        if var_idx >= 12:  # Only show first 12
+            break
+            
+        ax = fig.add_subplot(gs[var_idx // 3, var_idx % 3])
+        
+        if var in df.columns:
+            if is_categorical:
+                # Create grouped data
+                grouped_data = []
+                labels = []
+                
+                for obj, obj_label, scale in objectives[:4]:  # Show first 4 objectives
+                    data_by_category = []
+                    for category in df[var].unique():
+                        values = df[df[var] == category][obj] / scale
+                        data_by_category.append(values)
+                    grouped_data.append(data_by_category)
+                    labels.append(obj_label.split('(')[0].strip())
+                
+                # Create positions for grouped bars
+                categories = [str(cat).split('/')[-1][:15] for cat in df[var].unique()]
+                x = np.arange(len(categories))
+                width = 0.2
+                
+                # Plot grouped bars
+                for i, (data, label) in enumerate(zip(grouped_data, labels)):
+                    means = [d.mean() for d in data]
+                    ax.bar(x + i*width - 1.5*width, means, width, label=label, alpha=0.8)
+                
+                ax.set_xlabel(var_label, fontsize=12)
+                ax.set_xticks(x)
+                ax.set_xticklabels(categories, rotation=45, ha='right')
+                ax.legend(fontsize=10, loc='upper right')
+                ax.grid(True, alpha=0.3)
+                
+            else:
+                # Continuous variable - create 2x2 scatter plots
+                for i, (obj, obj_label, scale) in enumerate(objectives[:4]):
+                    color = plt.cm.tab10(i)
+                    ax.scatter(df[var], df[obj]/scale, alpha=0.5, s=30, 
+                             label=obj_label.split('(')[0].strip(), color=color)
+                
+                ax.set_xlabel(var_label, fontsize=12)
+                ax.set_ylabel('Normalized Objective Values', fontsize=12)
+                ax.legend(fontsize=10, loc='best')
+                ax.grid(True, alpha=0.3)
+        
+        ax.set_title(f'Impact of {var_label}', fontsize=14)
+    
+    plt.suptitle('Decision Variable Impact Analysis on Multiple Objectives', fontsize=20)
     plt.tight_layout()
-
+    
     # Save
-    fig.savefig(f'{output_dir}/png/constraint_satisfaction_analysis.png', dpi=300, bbox_inches='tight')
-    fig.savefig(f'{output_dir}/pdf/constraint_satisfaction_analysis.pdf', bbox_inches='tight')
+    fig.savefig(f'{output_dir}/png/decision_variable_impact_6obj.png', dpi=300, bbox_inches='tight')
+    fig.savefig(f'{output_dir}/pdf/decision_variable_impact_6obj.pdf', bbox_inches='tight')
     plt.close(fig)
 
-    logger.info("Constraint satisfaction analysis saved")
+def create_technology_comparison_dashboard(df, output_dir='./results'):
+    """Create comprehensive technology comparison for all 6 objectives"""
+    
+    fig = plt.figure(figsize=(20, 16))
+    gs = GridSpec(3, 3, figure=fig, hspace=0.3, wspace=0.3)
+    
+    # Group by sensor technology
+    sensor_groups = df.groupby('sensor').agg({
+        'f1_total_cost_USD': ['mean', 'std', 'count'],
+        'detection_recall': ['mean', 'std'],
+        'f3_latency_seconds': ['mean', 'std'],
+        'f4_traffic_disruption_hours': ['mean', 'std'],
+        'f5_environmental_impact_kWh_year': ['mean', 'std'],
+        'system_MTBF_hours': ['mean', 'std']
+    })
+    
+    # Sort by cost
+    sensor_groups = sensor_groups.sort_values(('f1_total_cost_USD', 'mean'))
+    
+    # 1. Cost comparison
+    ax1 = fig.add_subplot(gs[0, 0])
+    sensor_names = [s.split('/')[-1] for s in sensor_groups.index]
+    y_pos = np.arange(len(sensor_names))
+    
+    ax1.barh(y_pos, sensor_groups[('f1_total_cost_USD', 'mean')]/1000,
+            xerr=sensor_groups[('f1_total_cost_USD', 'std')]/1000,
+            color='skyblue', capsize=5)
+    ax1.set_yticks(y_pos)
+    ax1.set_yticklabels(sensor_names)
+    ax1.set_xlabel('Average Total Cost (k$)', fontsize=12)
+    ax1.set_title('Cost by Sensor Technology', fontsize=14)
+    ax1.grid(True, alpha=0.3, axis='x')
+    
+    # Add count annotations
+    for i, count in enumerate(sensor_groups[('f1_total_cost_USD', 'count')]):
+        ax1.text(5, i, f'n={count}', fontsize=10, va='center')
+    
+    # 2. Performance comparison
+    ax2 = fig.add_subplot(gs[0, 1])
+    ax2.barh(y_pos, sensor_groups[('detection_recall', 'mean')],
+            xerr=sensor_groups[('detection_recall', 'std')],
+            color='lightgreen', capsize=5)
+    ax2.set_yticks(y_pos)
+    ax2.set_yticklabels(sensor_names)
+    ax2.set_xlabel('Average Detection Recall', fontsize=12)
+    ax2.set_title('Performance by Sensor Technology', fontsize=14)
+    ax2.grid(True, alpha=0.3, axis='x')
+    ax2.set_xlim(0, 1)
+    
+    # 3. Environmental impact
+    ax3 = fig.add_subplot(gs[0, 2])
+    ax3.barh(y_pos, sensor_groups[('f5_environmental_impact_kWh_year', 'mean')]/1000,
+            xerr=sensor_groups[('f5_environmental_impact_kWh_year', 'std')]/1000,
+            color='lightcoral', capsize=5)
+    ax3.set_yticks(y_pos)
+    ax3.set_yticklabels(sensor_names)
+    ax3.set_xlabel('Average Annual Energy (MWh)', fontsize=12)
+    ax3.set_title('Environmental Impact by Sensor', fontsize=14)
+    ax3.grid(True, alpha=0.3, axis='x')
+    
+    # 4. Reliability comparison
+    ax4 = fig.add_subplot(gs[1, 0])
+    ax4.barh(y_pos, sensor_groups[('system_MTBF_hours', 'mean')]/8760,
+            xerr=sensor_groups[('system_MTBF_hours', 'std')]/8760,
+            color='gold', capsize=5)
+    ax4.set_yticks(y_pos)
+    ax4.set_yticklabels(sensor_names)
+    ax4.set_xlabel('Average System MTBF (years)', fontsize=12)
+    ax4.set_title('Reliability by Sensor Technology', fontsize=14)
+    ax4.grid(True, alpha=0.3, axis='x')
+    
+    # 5. Algorithm comparison
+    ax5 = fig.add_subplot(gs[1, 1:])
+    algo_groups = df.groupby('algorithm').agg({
+        'detection_recall': 'mean',
+        'f3_latency_seconds': 'mean',
+        'f5_environmental_impact_kWh_year': 'mean'
+    }).sort_values('detection_recall', ascending=False)
+    
+    algo_names = [a.split('/')[-1][:20] for a in algo_groups.index[:10]]  # Top 10
+    x_pos = np.arange(len(algo_names))
+    
+    ax5_twin = ax5.twinx()
+    
+    # Bar plot for recall
+    bars = ax5.bar(x_pos, algo_groups['detection_recall'].head(10), 
+                   alpha=0.6, color='blue', label='Detection Recall')
+    
+    # Line plot for latency
+    line = ax5_twin.plot(x_pos, algo_groups['f3_latency_seconds'].head(10), 
+                        'ro-', linewidth=2, markersize=8, label='Latency (s)')
+    
+    ax5.set_xticks(x_pos)
+    ax5.set_xticklabels(algo_names, rotation=45, ha='right')
+    ax5.set_ylabel('Detection Recall', fontsize=12)
+    ax5_twin.set_ylabel('Latency (seconds)', fontsize=12)
+    ax5.set_title('Algorithm Performance Comparison', fontsize=14)
+    ax5.grid(True, alpha=0.3)
+    
+    # Combined legend
+    lines1, labels1 = ax5.get_legend_handles_labels()
+    lines2, labels2 = ax5_twin.get_legend_handles_labels()
+    ax5.legend(lines1 + lines2, labels1 + labels2, loc='upper right')
+    
+    # 6. Multi-objective radar chart for top solutions
+    ax6 = fig.add_subplot(gs[2, :], projection='polar')
+    
+    # Get top 5 solutions by different criteria
+    top_cheap = df.nsmallest(1, 'f1_total_cost_USD').iloc[0]
+    top_perf = df.nlargest(1, 'detection_recall').iloc[0]
+    top_green = df.nsmallest(1, 'f5_environmental_impact_kWh_year').iloc[0]
+    top_reliable = df.nlargest(1, 'system_MTBF_hours').iloc[0]
+    
+    solutions = [
+        ('Lowest Cost', top_cheap),
+        ('Best Performance', top_perf),
+        ('Most Sustainable', top_green),
+        ('Most Reliable', top_reliable)
+    ]
+    
+    # Radar chart setup
+    objectives = ['Cost\n(inverse)', 'Recall', 'Speed\n(inverse)', 
+                 'Low\nDisruption', 'Energy\nEfficiency', 'Reliability']
+    angles = np.linspace(0, 2 * np.pi, len(objectives), endpoint=False).tolist()
+    angles += angles[:1]
+    
+    # Plot each solution
+    for label, sol in solutions:
+        values = []
+        # Normalize values (1 = best, 0 = worst)
+        values.append(1 - (sol['f1_total_cost_USD'] - df['f1_total_cost_USD'].min()) /
+                     (df['f1_total_cost_USD'].max() - df['f1_total_cost_USD'].min()))
+        values.append((sol['detection_recall'] - df['detection_recall'].min()) /
+                     (df['detection_recall'].max() - df['detection_recall'].min()))
+        values.append(1 - (sol['f3_latency_seconds'] - df['f3_latency_seconds'].min()) /
+                     (df['f3_latency_seconds'].max() - df['f3_latency_seconds'].min()))
+        values.append(1 - (sol['f4_traffic_disruption_hours'] - df['f4_traffic_disruption_hours'].min()) /
+                     (df['f4_traffic_disruption_hours'].max() - df['f4_traffic_disruption_hours'].min()))
+        values.append(1 - (sol['f5_environmental_impact_kWh_year'] - df['f5_environmental_impact_kWh_year'].min()) /
+                     (df['f5_environmental_impact_kWh_year'].max() - df['f5_environmental_impact_kWh_year'].min()))
+        values.append((sol['system_MTBF_hours'] - df['system_MTBF_hours'].min()) /
+                     (df['system_MTBF_hours'].max() - df['system_MTBF_hours'].min()))
+        
+        values += values[:1]
+        
+        ax6.plot(angles, values, 'o-', linewidth=2, label=label)
+        ax6.fill(angles, values, alpha=0.15)
+    
+    ax6.set_theta_offset(np.pi / 2)
+    ax6.set_theta_direction(-1)
+    ax6.set_xticks(angles[:-1])
+    ax6.set_xticklabels(objectives, fontsize=11)
+    ax6.set_ylim(0, 1)
+    ax6.set_title('Multi-Objective Comparison of Extreme Solutions', fontsize=14, pad=30)
+    ax6.legend(loc='upper right', bbox_to_anchor=(1.2, 1.1))
+    ax6.grid(True, alpha=0.3)
+    
+    plt.suptitle('Technology Comparison Dashboard - 6 Objectives', fontsize=20, y=0.98)
+    plt.tight_layout()
+    
+    # Save
+    fig.savefig(f'{output_dir}/png/technology_comparison_6obj.png', dpi=300, bbox_inches='tight')
+    fig.savefig(f'{output_dir}/pdf/technology_comparison_6obj.pdf', bbox_inches='tight')
+    plt.close(fig)
 
+def create_objective_correlation_heatmap(df, output_dir='./results'):
+    """Create correlation heatmap for all 6 objectives"""
+    
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 8))
+    
+    # Select objective columns
+    objective_cols = [
+        'f1_total_cost_USD',
+        'detection_recall',
+        'f3_latency_seconds',
+        'f4_traffic_disruption_hours',
+        'f5_environmental_impact_kWh_year',
+        'system_MTBF_hours'
+    ]
+    
+    # Create correlation matrix
+    corr_matrix = df[objective_cols].corr()
+    
+    # Rename for display
+    display_names = [
+        'Total Cost',
+        'Detection Recall',
+        'Latency',
+        'Traffic Disruption',
+        'Environmental Impact',
+        'System MTBF'
+    ]
+    
+    corr_matrix.index = display_names
+    corr_matrix.columns = display_names
+    
+    # 1. Standard correlation heatmap
+    sns.heatmap(corr_matrix, annot=True, fmt='.2f', cmap='RdBu_r',
+                center=0, vmin=-1, vmax=1, square=True,
+                linewidths=1, cbar_kws={"shrink": 0.8}, ax=ax1)
+    ax1.set_title('Objective Correlation Matrix', fontsize=16)
+    
+    # 2. Clustered heatmap with dendrogram
+    from scipy.cluster.hierarchy import dendrogram, linkage
+    from scipy.spatial.distance import squareform
+    
+    # Calculate distance matrix and perform hierarchical clustering
+    distance_matrix = 1 - np.abs(corr_matrix)
+    condensed_distances = squareform(distance_matrix)
+    linkage_matrix = linkage(condensed_distances, method='average')
+    
+    # Create dendrogram
+    dendro = dendrogram(linkage_matrix, labels=display_names, ax=ax2, 
+                       orientation='top', color_threshold=0)
+    ax2.set_title('Objective Clustering Dendrogram', fontsize=16)
+    ax2.set_ylabel('Distance (1 - |correlation|)', fontsize=12)
+    
+    # Reorder correlation matrix based on clustering
+    order = dendro['leaves']
+    clustered_corr = corr_matrix.iloc[order, order]
+    
+    # Create inset for clustered heatmap
+    from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+    axins = inset_axes(ax2, width="40%", height="40%", loc='lower right',
+                      bbox_to_anchor=(0.05, 0.05, 0.9, 0.4),
+                      bbox_transform=ax2.transAxes)
+    
+    sns.heatmap(clustered_corr, annot=False, cmap='RdBu_r',
+                center=0, vmin=-1, vmax=1, square=True,
+                cbar=False, ax=axins)
+    axins.set_xticklabels([])
+    axins.set_yticklabels([])
+    axins.set_title('Clustered', fontsize=10)
+    
+    plt.suptitle('Objective Relationships Analysis', fontsize=18)
+    plt.tight_layout()
+    
+    # Save
+    fig.savefig(f'{output_dir}/png/objective_correlation_6d.png', dpi=300, bbox_inches='tight')
+    fig.savefig(f'{output_dir}/pdf/objective_correlation_6d.pdf', bbox_inches='tight')
+    plt.close(fig)
 
-def create_comprehensive_report(df, high_quality_df, baseline_results, output_dir):
-    """创建综合分析报告（修改版）"""
-    logger.info("Creating comprehensive analysis report...")
+def create_pareto_front_2d_projections(df, output_dir='./results'):
+    """Create 2D projections of 6D Pareto front"""
+    
+    # Create figure with subplots for key objective pairs
+    fig = plt.figure(figsize=(20, 16))
+    gs = GridSpec(3, 3, figure=fig, hspace=0.3, wspace=0.3)
+    
+    # Define key objective pairs
+    pairs = [
+        ('f1_total_cost_USD', 'detection_recall', 'Cost vs Performance'),
+        ('f1_total_cost_USD', 'f5_environmental_impact_kWh_year', 'Cost vs Sustainability'),
+        ('f1_total_cost_USD', 'system_MTBF_hours', 'Cost vs Reliability'),
+        ('detection_recall', 'f3_latency_seconds', 'Performance vs Speed'),
+        ('detection_recall', 'f5_environmental_impact_kWh_year', 'Performance vs Sustainability'),
+        ('f5_environmental_impact_kWh_year', 'system_MTBF_hours', 'Sustainability vs Reliability'),
+        ('f3_latency_seconds', 'f4_traffic_disruption_hours', 'Operational Efficiency'),
+        ('detection_recall', 'system_MTBF_hours', 'Performance vs Reliability'),
+        ('f1_total_cost_USD', 'f3_latency_seconds', 'Cost vs Speed')
+    ]
+    
+    for idx, (obj1, obj2, title) in enumerate(pairs):
+        ax = fig.add_subplot(gs[idx // 3, idx % 3])
+        
+        # Scale data if needed
+        x_data = df[obj1] / 1000 if 'cost' in obj1 or 'environmental' in obj1 else df[obj1]
+        y_data = df[obj2] / 1000 if 'cost' in obj2 or 'environmental' in obj2 or 'MTBF' in obj2 else df[obj2]
+        
+        # Color by third objective (rotating through remaining objectives)
+        color_options = ['f1_total_cost_USD', 'detection_recall', 'f3_latency_seconds', 
+                        'f4_traffic_disruption_hours', 'f5_environmental_impact_kWh_year', 
+                        'system_MTBF_hours']
+        color_obj = [c for c in color_options if c not in [obj1, obj2]][0]
+        color_data = df[color_obj] / 1000 if 'cost' in color_obj or 'environmental' in color_obj else df[color_obj]
+        
+        # Create scatter plot
+        scatter = ax.scatter(x_data, y_data, c=color_data, 
+                           cmap='viridis', s=50, alpha=0.6, edgecolors='black', linewidth=0.5)
+        
+        # Labels
+        x_label = obj1.replace('_', ' ').replace('f1 ', '').replace('USD', '(k$)').replace('kWh year', '(MWh/y)')
+        y_label = obj2.replace('_', ' ').replace('hours', '(k hours)').replace('USD', '(k$)')
+        
+        ax.set_xlabel(x_label, fontsize=12)
+        ax.set_ylabel(y_label, fontsize=12)
+        ax.set_title(title, fontsize=14)
+        ax.grid(True, alpha=0.3)
+        
+        # Add colorbar
+        cbar = plt.colorbar(scatter, ax=ax)
+        color_label = color_obj.replace('_', ' ').replace('f1 ', '').replace('f5 ', '')
+        cbar.set_label(color_label, fontsize=10)
+        cbar.ax.tick_params(labelsize=10)
+        
+        # Add Pareto front line for main trade-offs
+        if idx < 3:  # For first three plots, show Pareto front
+            # Simple 2D Pareto front identification
+            pareto_mask = np.ones(len(df), dtype=bool)
+            for i in range(len(df)):
+                for j in range(len(df)):
+                    if i != j:
+                        # For objectives to minimize (all except recall and MTBF)
+                        if 'recall' in obj1 or 'MTBF' in obj1:
+                            cond1 = df.iloc[j][obj1] >= df.iloc[i][obj1]
+                        else:
+                            cond1 = df.iloc[j][obj1] <= df.iloc[i][obj1]
+                            
+                        if 'recall' in obj2 or 'MTBF' in obj2:
+                            cond2 = df.iloc[j][obj2] >= df.iloc[i][obj2]
+                        else:
+                            cond2 = df.iloc[j][obj2] <= df.iloc[i][obj2]
+                            
+                        if cond1 and cond2:
+                            if (('recall' not in obj1 and 'MTBF' not in obj1 and df.iloc[j][obj1] < df.iloc[i][obj1]) or
+                                ('recall' in obj1 or 'MTBF' in obj1) and df.iloc[j][obj1] > df.iloc[i][obj1] or
+                                ('recall' not in obj2 and 'MTBF' not in obj2 and df.iloc[j][obj2] < df.iloc[i][obj2]) or
+                                ('recall' in obj2 or 'MTBF' in obj2) and df.iloc[j][obj2] > df.iloc[i][obj2]):
+                                pareto_mask[i] = False
+                                break
+            
+            # Sort and plot Pareto front
+            pareto_points = df[pareto_mask].sort_values(obj1)
+            ax.plot(pareto_points[obj1] / (1000 if 'cost' in obj1 or 'environmental' in obj1 else 1),
+                   pareto_points[obj2] / (1000 if 'cost' in obj2 or 'environmental' in obj2 or 'MTBF' in obj2 else 1),
+                   'r--', linewidth=2, alpha=0.7, label='2D Pareto Front')
+            ax.legend()
+    
+    plt.suptitle('2D Projections of 6D Pareto Front', fontsize=20)
+    plt.tight_layout()
+    
+    # Save
+    fig.savefig(f'{output_dir}/png/pareto_2d_projections_6obj.png', dpi=300, bbox_inches='tight')
+    fig.savefig(f'{output_dir}/pdf/pareto_2d_projections_6obj.pdf', bbox_inches='tight')
+    plt.close(fig)
 
-    report_text = f"""
-EXPERT-ENHANCED PARETO FRONT ANALYSIS REPORT
-============================================
-Generated: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}
+def create_configuration_performance_profiles(df, output_dir='./results'):
+    """Create performance profiles for different configuration types"""
+    
+    fig = plt.figure(figsize=(20, 12))
+    gs = GridSpec(2, 3, figure=fig, hspace=0.3, wspace=0.3)
+    
+    # 1. Sensor-Algorithm combination heatmap
+    ax1 = fig.add_subplot(gs[0, :2])
+    
+    # Create pivot table for sensor-algorithm combinations
+    pivot_recall = df.pivot_table(values='detection_recall', 
+                                  index='sensor', 
+                                  columns='algorithm', 
+                                  aggfunc='mean')
+    
+    # Shorten names
+    pivot_recall.index = [s.split('/')[-1][:20] for s in pivot_recall.index]
+    pivot_recall.columns = [a.split('/')[-1][:15] for a in pivot_recall.columns]
+    
+    # Create heatmap
+    sns.heatmap(pivot_recall, annot=True, fmt='.3f', cmap='YlOrRd',
+                cbar_kws={'label': 'Average Detection Recall'}, ax=ax1)
+    ax1.set_title('Sensor-Algorithm Performance Matrix', fontsize=16)
+    ax1.set_xlabel('Algorithm', fontsize=12)
+    ax1.set_ylabel('Sensor', fontsize=12)
+    
+    # 2. LOD impact analysis
+    ax2 = fig.add_subplot(gs[0, 2])
+    
+    lod_impact = df.groupby(['geometric_LOD', 'condition_LOD']).agg({
+        'detection_recall': 'mean',
+        'f1_total_cost_USD': 'mean'
+    })
+    
+    # Create grouped bar plot
+    lod_combinations = lod_impact.index
+    x = np.arange(len(lod_combinations))
+    width = 0.35
+    
+    ax2.bar(x - width/2, lod_impact['detection_recall'], width, 
+           label='Avg Recall', color='skyblue')
+    ax2_twin = ax2.twinx()
+    ax2_twin.bar(x + width/2, lod_impact['f1_total_cost_USD']/1000000, width,
+                label='Avg Cost (M$)', color='lightcoral')
+    
+    ax2.set_xlabel('LOD Combination\n(Geometric, Condition)', fontsize=12)
+    ax2.set_ylabel('Detection Recall', fontsize=12)
+    ax2_twin.set_ylabel('Cost (Million $)', fontsize=12)
+    ax2.set_title('Impact of LOD Selection', fontsize=14)
+    ax2.set_xticks(x)
+    ax2.set_xticklabels([f'{g}\n{c}' for g, c in lod_combinations], fontsize=10)
+    
+    # Combined legend
+    lines1, labels1 = ax2.get_legend_handles_labels()
+    lines2, labels2 = ax2_twin.get_legend_handles_labels()
+    ax2.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
+    
+    # 3. Infrastructure choices distribution
+    ax3 = fig.add_subplot(gs[1, 0])
+    
+    # Count configurations by infrastructure type
+    infra_counts = pd.DataFrame({
+        'Storage': df['storage'].value_counts(),
+        'Communication': df['communication'].value_counts(),
+        'Deployment': df['deployment'].value_counts()
+    }).fillna(0)
+    
+    # Shorten names
+    infra_counts.index = [i.split('/')[-1][:20] for i in infra_counts.index]
+    
+    # Create stacked bar plot
+    infra_counts.plot(kind='bar', stacked=True, ax=ax3, 
+                     color=['#1f77b4', '#ff7f0e', '#2ca02c'])
+    ax3.set_xlabel('Infrastructure Component', fontsize=12)
+    ax3.set_ylabel('Number of Configurations', fontsize=12)
+    ax3.set_title('Infrastructure Choice Distribution', fontsize=14)
+    ax3.legend(title='Component Type', bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.setp(ax3.xaxis.get_majorticklabels(), rotation=45, ha='right')
+    
+    # 4. Operational parameters impact
+    ax4 = fig.add_subplot(gs[1, 1:])
+    
+    # Create bins for crew size and inspection cycle
+    df['crew_size_bin'] = pd.cut(df['crew_size'], bins=[0, 3, 6, 10], 
+                                 labels=['Small (1-3)', 'Medium (4-6)', 'Large (7-10)'])
+    df['inspection_cycle_bin'] = pd.cut(df['inspection_cycle_days'], 
+                                       bins=[0, 30, 90, 365],
+                                       labels=['Frequent (<30d)', 'Regular (30-90d)', 'Infrequent (>90d)'])
+    
+    # Create grouped analysis
+    operational_impact = df.groupby(['crew_size_bin', 'inspection_cycle_bin']).agg({
+        'f1_total_cost_USD': 'mean',
+        'f4_traffic_disruption_hours': 'mean',
+        'f5_environmental_impact_kWh_year': 'mean'
+    })
+    
+    # Plot
+    operational_impact.plot(kind='bar', ax=ax4)
+    ax4.set_xlabel('Crew Size / Inspection Frequency', fontsize=12)
+    ax4.set_ylabel('Average Values', fontsize=12)
+    ax4.set_title('Impact of Operational Parameters', fontsize=14)
+    ax4.legend(['Total Cost ($)', 'Traffic Disruption (h)', 'Environmental Impact (kWh/y)'],
+              bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.setp(ax4.xaxis.get_majorticklabels(), rotation=45, ha='right')
+    
+    plt.suptitle('Configuration Performance Profiles', fontsize=20)
+    plt.tight_layout()
+    
+    # Save
+    fig.savefig(f'{output_dir}/png/configuration_profiles_6obj.png', dpi=300, bbox_inches='tight')
+    fig.savefig(f'{output_dir}/pdf/configuration_profiles_6obj.pdf', bbox_inches='tight')
+    plt.close(fig)
 
-1. SOLUTION STATISTICS:
-----------------------
-- Total Pareto Solutions: {len(df)}
-- Feasible Solutions: {df['is_feasible'].sum()}
-- High-Quality Solutions (Meeting All Requirements): {len(high_quality_df)}
-- Feasibility Rate: {df['is_feasible'].sum() / len(df) * 100:.1f}%
+def create_sustainability_focused_analysis(df, output_dir='./results'):
+    """Create detailed sustainability analysis visualizations"""
+    
+    fig = plt.figure(figsize=(20, 14))
+    gs = GridSpec(3, 3, figure=fig, hspace=0.3, wspace=0.3)
+    
+    # Calculate carbon footprint
+    carbon_intensity = 0.4  # kg CO2 per kWh
+    df['carbon_footprint_kg'] = df['f5_environmental_impact_kWh_year'] * carbon_intensity
+    
+    # 1. Environmental impact distribution by technology
+    ax1 = fig.add_subplot(gs[0, :2])
+    
+    tech_categories = ['Sensor', 'Algorithm', 'Deployment']
+    positions = np.arange(len(tech_categories))
+    
+    for i, (category, col) in enumerate([('Sensor', 'sensor'), 
+                                         ('Algorithm', 'algorithm'), 
+                                         ('Deployment', 'deployment')]):
+        data_by_type = []
+        labels = []
+        
+        for tech_type in df[col].unique()[:5]:  # Top 5 each
+            carbon_values = df[df[col] == tech_type]['carbon_footprint_kg']
+            if len(carbon_values) > 0:
+                data_by_type.append(carbon_values)
+                labels.append(tech_type.split('/')[-1][:15])
+        
+        # Create violin plot
+        parts = ax1.violinplot(data_by_type, positions=positions[i]*6 + np.arange(len(data_by_type)),
+                              widths=0.7, showmeans=True, showmedians=True)
+        
+        # Customize colors
+        for pc in parts['bodies']:
+            pc.set_facecolor(plt.cm.Set3(i))
+            pc.set_alpha(0.7)
+    
+    ax1.set_xlabel('Technology Type', fontsize=12)
+    ax1.set_ylabel('Annual Carbon Footprint (kg CO₂)', fontsize=12)
+    ax1.set_title('Carbon Footprint Distribution by Technology Choice', fontsize=16)
+    ax1.grid(True, alpha=0.3, axis='y')
+    
+    # 2. Energy efficiency vs Performance trade-off
+    ax2 = fig.add_subplot(gs[0, 2])
+    
+    # Create 2D density plot
+    x = df['f5_environmental_impact_kWh_year'] / 1000  # Convert to MWh
+    y = df['detection_recall']
+    
+    # Calculate density
+    xy = np.vstack([x, y])
+    z = gaussian_kde(xy)(xy)
+    
+    # Sort by density for better visualization
+    idx = z.argsort()
+    x, y, z = x.iloc[idx], y.iloc[idx], z[idx]
+    
+    scatter = ax2.scatter(x, y, c=z, s=50, cmap='viridis', alpha=0.6)
+    ax2.set_xlabel('Annual Energy (MWh)', fontsize=12)
+    ax2.set_ylabel('Detection Recall', fontsize=12)
+    ax2.set_title('Energy-Performance Trade-off Density', fontsize=14)
+    ax2.grid(True, alpha=0.3)
+    
+    cbar = plt.colorbar(scatter, ax=ax2)
+    cbar.set_label('Solution Density', fontsize=10)
+    
+    # 3. Sustainability metrics correlation
+    ax3 = fig.add_subplot(gs[1, 0])
+    
+    sustainability_metrics = df[['f5_environmental_impact_kWh_year', 
+                               'system_MTBF_hours', 
+                               'f1_total_cost_USD',
+                               'carbon_footprint_kg']].copy()
+    
+    # Normalize for comparison
+    for col in sustainability_metrics.columns:
+        sustainability_metrics[col] = (sustainability_metrics[col] - sustainability_metrics[col].min()) / \
+                                    (sustainability_metrics[col].max() - sustainability_metrics[col].min())
+    
+    # Create correlation matrix
+    corr = sustainability_metrics.corr()
+    
+    # Plot
+    sns.heatmap(corr, annot=True, fmt='.2f', cmap='RdBu_r',
+                center=0, square=True, linewidths=1,
+                cbar_kws={"shrink": 0.8}, ax=ax3)
+    ax3.set_title('Sustainability Metrics Correlation', fontsize=14)
+    
+    # 4. Best sustainable configurations
+    ax4 = fig.add_subplot(gs[1, 1:])
+    
+    # Identify Pareto front for sustainability objectives
+    sustainability_pareto = []
+    for i in range(len(df)):
+        dominated = False
+        for j in range(len(df)):
+            if i != j:
+                if (df.iloc[j]['f5_environmental_impact_kWh_year'] <= df.iloc[i]['f5_environmental_impact_kWh_year'] and
+                    df.iloc[j]['system_MTBF_hours'] >= df.iloc[i]['system_MTBF_hours'] and
+                    (df.iloc[j]['f5_environmental_impact_kWh_year'] < df.iloc[i]['f5_environmental_impact_kWh_year'] or
+                     df.iloc[j]['system_MTBF_hours'] > df.iloc[i]['system_MTBF_hours'])):
+                    dominated = True
+                    break
+        if not dominated:
+            sustainability_pareto.append(i)
+    
+    # Plot sustainability Pareto front
+    pareto_df = df.iloc[sustainability_pareto]
+    
+    ax4.scatter(df['f5_environmental_impact_kWh_year']/1000, 
+               df['system_MTBF_hours']/8760,
+               c='lightgray', s=30, alpha=0.5, label='All solutions')
+    
+    ax4.scatter(pareto_df['f5_environmental_impact_kWh_year']/1000,
+               pareto_df['system_MTBF_hours']/8760,
+               c='green', s=100, alpha=0.8, edgecolors='black',
+               label='Sustainability Pareto optimal')
+    
+    ax4.set_xlabel('Annual Energy Consumption (MWh)', fontsize=12)
+    ax4.set_ylabel('System MTBF (years)', fontsize=12)
+    ax4.set_title('Sustainability-Reliability Pareto Front', fontsize=14)
+    ax4.legend()
+    ax4.grid(True, alpha=0.3)
+    
+    # 5. Technology sustainability ranking
+    ax5 = fig.add_subplot(gs[2, :])
+    
+    # Calculate sustainability score (lower is better)
+    df['sustainability_score'] = (
+        0.5 * (df['f5_environmental_impact_kWh_year'] - df['f5_environmental_impact_kWh_year'].min()) / 
+              (df['f5_environmental_impact_kWh_year'].max() - df['f5_environmental_impact_kWh_year'].min()) +
+        0.5 * (1 - (df['system_MTBF_hours'] - df['system_MTBF_hours'].min()) / 
+              (df['system_MTBF_hours'].max() - df['system_MTBF_hours'].min()))
+    )
+    
+    # Rank by sensor type
+    sensor_sustainability = df.groupby('sensor').agg({
+        'sustainability_score': 'mean',
+        'f5_environmental_impact_kWh_year': 'mean',
+        'system_MTBF_hours': 'mean',
+        'carbon_footprint_kg': 'mean'
+    }).sort_values('sustainability_score')
+    
+    # Create table
+    ax5.axis('tight')
+    ax5.axis('off')
+    
+    table_data = []
+    for idx, (sensor, row) in enumerate(sensor_sustainability.head(10).iterrows()):
+        table_data.append([
+            f"{idx+1}",
+            sensor.split('/')[-1][:30],
+            f"{row['sustainability_score']:.3f}",
+            f"{row['f5_environmental_impact_kWh_year']:.0f}",
+            f"{row['carbon_footprint_kg']:.1f}",
+            f"{row['system_MTBF_hours']/8760:.1f}"
+        ])
+    
+    table = ax5.table(cellText=table_data,
+                     colLabels=['Rank', 'Sensor Technology', 'Sustainability\nScore', 
+                               'Avg Energy\n(kWh/year)', 'Avg CO₂\n(kg/year)', 'Avg MTBF\n(years)'],
+                     cellLoc='center',
+                     loc='center',
+                     colWidths=[0.08, 0.35, 0.15, 0.15, 0.15, 0.12])
+    
+    table.auto_set_font_size(False)
+    table.set_fontsize(11)
+    table.scale(1, 2)
+    
+    # Style header
+    for i in range(6):
+        table[(0, i)].set_facecolor('#4CAF50')
+        table[(0, i)].set_text_props(weight='bold', color='white')
+    
+    # Color cells by rank
+    colors = plt.cm.Greens_r(np.linspace(0.2, 0.8, 10))
+    for i in range(1, 11):
+        if i < len(table_data) + 1:
+            for j in range(6):
+                table[(i, j)].set_facecolor(colors[i-1])
+    
+    ax5.set_title('Top 10 Most Sustainable Sensor Technologies', fontsize=16, pad=20)
+    
+    plt.suptitle('Comprehensive Sustainability Analysis', fontsize=20, y=0.98)
+    plt.tight_layout()
+    
+    # Save
+    fig.savefig(f'{output_dir}/png/sustainability_analysis_detailed.png', dpi=300, bbox_inches='tight')
+    fig.savefig(f'{output_dir}/pdf/sustainability_analysis_detailed.pdf', bbox_inches='tight')
+    plt.close(fig)
 
-2. OBJECTIVE RANGES:
--------------------
-All Solutions:
-- Cost: ${df['f1_total_cost_USD'].min():,.0f} - ${df['f1_total_cost_USD'].max():,.0f}
-- Recall: {df['detection_recall'].min():.3f} - {df['detection_recall'].max():.3f}
-- Latency: {df['f3_latency_seconds'].min():.1f}s - {df['f3_latency_seconds'].max():.1f}s
-- Disruption: {df['f4_traffic_disruption_hours'].min():.1f}h - {df['f4_traffic_disruption_hours'].max():.1f}h
+# ============================================================================
+# MAIN EXECUTION FUNCTION
+# ============================================================================
 
-"""
+def create_all_visualizations(csv_file='./results/pareto_solutions_6d.csv', 
+                            output_dir='./results'):
+    """
+    Main function to create all visualizations for 6-objective optimization results
+    
+    Args:
+        csv_file: Path to the CSV file containing Pareto solutions
+        output_dir: Directory to save visualization outputs
+    """
+    
+    print("="*60)
+    print("Advanced Visualizations for 6-Objective RMTwin Optimization")
+    print("="*60)
+    
+    # Load data
+    try:
+        df = pd.read_csv(csv_file)
+        print(f"Loaded {len(df)} Pareto-optimal solutions")
+    except FileNotFoundError:
+        print(f"Error: Could not find {csv_file}")
+        print("Please run the optimization first to generate results")
+        return
+    
+    # Create visualizations
+    print("\nCreating visualizations...")
+    
+    # 1. Enhanced 3D Pareto visualizations
+    print("1. Creating 3D Pareto visualizations...")
+    create_enhanced_3d_pareto_visualization(df, output_dir)
+    
+    # 2. Decision variable impact analysis
+    print("2. Creating decision variable impact analysis...")
+    create_decision_variable_impact_analysis(df, output_dir)
+    
+    # 3. Technology comparison dashboard
+    print("3. Creating technology comparison dashboard...")
+    create_technology_comparison_dashboard(df, output_dir)
+    
+    # 4. Objective correlation analysis
+    print("4. Creating objective correlation heatmap...")
+    create_objective_correlation_heatmap(df, output_dir)
+    
+    # 5. 2D Pareto projections
+    print("5. Creating 2D Pareto projections...")
+    create_pareto_front_2d_projections(df, output_dir)
+    
+    # 6. Configuration performance profiles
+    print("6. Creating configuration performance profiles...")
+    create_configuration_performance_profiles(df, output_dir)
+    
+    # 7. Sustainability analysis
+    print("7. Creating sustainability analysis...")
+    create_sustainability_focused_analysis(df, output_dir)
+    
+    print("\n" + "="*60)
+    print("All visualizations completed!")
+    print(f"Results saved to: {output_dir}")
+    print("="*60)
 
-    if not high_quality_df.empty:
-        report_text += f"""
-High-Quality Solutions:
-- Cost: ${high_quality_df['f1_total_cost_USD'].min():,.0f} - ${high_quality_df['f1_total_cost_USD'].max():,.0f}
-- Recall: {high_quality_df['detection_recall'].min():.3f} - {high_quality_df['detection_recall'].max():.3f}
-- Latency: {high_quality_df['f3_latency_seconds'].min():.1f}s - {high_quality_df['f3_latency_seconds'].max():.1f}s
-- Disruption: {high_quality_df['f4_traffic_disruption_hours'].min():.1f}h - {high_quality_df['f4_traffic_disruption_hours'].max():.1f}h
-
-3. BEST SOLUTIONS BY CRITERION:
-------------------------------
-Most Cost-Effective:
-- Cost: ${high_quality_df.loc[high_quality_df['f1_total_cost_USD'].idxmin(), 'f1_total_cost_USD']:,.0f}
-- Sensor: {high_quality_df.loc[high_quality_df['f1_total_cost_USD'].idxmin(), 'sensor']}
-- Algorithm: {high_quality_df.loc[high_quality_df['f1_total_cost_USD'].idxmin(), 'algorithm']}
-- Recall: {high_quality_df.loc[high_quality_df['f1_total_cost_USD'].idxmin(), 'detection_recall']:.3f}
-
-Best Detection Performance:
-- Recall: {high_quality_df.loc[high_quality_df['detection_recall'].idxmax(), 'detection_recall']:.3f}
-- Cost: ${high_quality_df.loc[high_quality_df['detection_recall'].idxmax(), 'f1_total_cost_USD']:,.0f}
-- Sensor: {high_quality_df.loc[high_quality_df['detection_recall'].idxmax(), 'sensor']}
-- Algorithm: {high_quality_df.loc[high_quality_df['detection_recall'].idxmax(), 'algorithm']}
-
-Fastest Processing:
-- Latency: {high_quality_df.loc[high_quality_df['f3_latency_seconds'].idxmin(), 'f3_latency_seconds']:.1f}s
-- Cost: ${high_quality_df.loc[high_quality_df['f3_latency_seconds'].idxmin(), 'f1_total_cost_USD']:,.0f}
-- Algorithm: {high_quality_df.loc[high_quality_df['f3_latency_seconds'].idxmin(), 'algorithm']}
-
-Minimal Traffic Disruption:
-- Disruption: {high_quality_df.loc[high_quality_df['f4_traffic_disruption_hours'].idxmin(), 'f4_traffic_disruption_hours']:.1f}h
-- Cost: ${high_quality_df.loc[high_quality_df['f4_traffic_disruption_hours'].idxmin(), 'f1_total_cost_USD']:,.0f}
-- Sensor: {high_quality_df.loc[high_quality_df['f4_traffic_disruption_hours'].idxmin(), 'sensor']}
-"""
-
-    # Add baseline comparison if available
-    if baseline_results:
-        report_text += f"""
-4. BASELINE COMPARISON:
-----------------------"""
-
-        if 'greedy' in baseline_results:
-            greedy = baseline_results['greedy']['objectives']
-            report_text += f"""
-Greedy Cost-Minimization:
-- Cost: ${greedy['f1_total_cost_USD']:,.0f}
-- Recall: {greedy['detection_recall']:.3f}
-- Latency: {greedy['f3_latency_seconds']:.1f}s
-- Disruption: {greedy['f4_traffic_disruption_hours']:.1f}h
-- Feasible: {baseline_results['greedy']['constraints']['is_feasible']}
-"""
-
-        if 'weighted_sum' in baseline_results:
-            weighted = baseline_results['weighted_sum']['objectives']
-            report_text += f"""
-Weighted-Sum Optimization:
-- Cost: ${weighted['f1_total_cost_USD']:,.0f}
-- Recall: {weighted['detection_recall']:.3f}
-- Latency: {weighted['f3_latency_seconds']:.1f}s
-- Disruption: {weighted['f4_traffic_disruption_hours']:.1f}h
-- Feasible: {baseline_results['weighted_sum']['constraints']['is_feasible']}
-"""
-
-    report_text += f"""
-5. COMPONENT DIVERSITY:
-----------------------
-"""
-
-    if not high_quality_df.empty:
-        report_text += f"""
-In High-Quality Solutions:
-- Unique Sensors: {high_quality_df['sensor'].nunique()} types
-- Unique Algorithms: {high_quality_df['algorithm'].nunique()} types
-- Unique Storage: {high_quality_df['storage'].nunique()} types
-- Unique Communication: {high_quality_df['communication'].nunique()} types
-- Unique Deployments: {high_quality_df['deployment'].nunique()} types
-
-Most Common Configurations:
-- Top Sensor: {high_quality_df['sensor'].value_counts().index[0]} ({high_quality_df['sensor'].value_counts().iloc[0]} occurrences)
-- Top Algorithm: {high_quality_df['algorithm'].value_counts().index[0]} ({high_quality_df['algorithm'].value_counts().iloc[0]} occurrences)
-- Top LOD: {high_quality_df['geometric_LOD'].value_counts().index[0]} ({high_quality_df['geometric_LOD'].value_counts().iloc[0]} occurrences)
-"""
-
-    report_text += f"""
-6. KEY INSIGHTS:
----------------
-- The NSGA-II multi-objective optimization produced {len(df)} Pareto-optimal solutions,
-  demonstrating the complexity of the RMTwin configuration space.
-
-- {df['is_feasible'].sum() / len(df) * 100:.1f}% of Pareto solutions satisfy all hard constraints,
-  highlighting the importance of constraint handling in the optimization process.
-
-- The baseline methods produce single solutions that are dominated by multiple Pareto solutions,
-  validating the superiority of the multi-objective approach.
-
-- Component diversity in the Pareto set enables decision-makers to choose configurations
-  based on specific contextual requirements and preferences.
-
-============================================
-END OF REPORT
-"""
-
-    with open(f'{output_dir}/comprehensive_analysis_report.txt', 'w', encoding='utf-8') as f:
-        f.write(report_text)
-
-    print(report_text)
-    logger.info("Comprehensive report saved")
+# Run if called directly
+if __name__ == "__main__":
+    create_all_visualizations()
