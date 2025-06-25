@@ -45,7 +45,7 @@ from pymoo.util.nds.non_dominated_sorting import NonDominatedSorting
 # Semantic Web
 from rdflib import Graph, Namespace, URIRef, Literal, BNode
 from rdflib.namespace import RDF, RDFS, OWL, XSD
-import pySHACL
+import pyshacl
 
 # Visualization
 import matplotlib.pyplot as plt
