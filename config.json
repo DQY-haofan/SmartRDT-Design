@@ -1,5 +1,5 @@
 {
-    "road_network_length_km": 50,
+    "road_network_length_km": 500,
     "planning_horizon_years": 10,
     "budget_cap_usd": 20000000,
     "daily_wage_per_person": 1500,
