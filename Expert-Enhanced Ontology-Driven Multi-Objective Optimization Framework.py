@@ -112,9 +112,9 @@ class OptimizationConfig:
     """Central configuration for the optimization framework"""
     
     # File paths
-    sensor_csv: str = 'sensors_data_enhanced.txt'
-    algorithm_csv: str = 'algorithms_data_enhanced.txt'
-    infrastructure_csv: str = 'infrastructure_data_enhanced.txt'
+    sensor_csv: str = 'sensors_data.txt'
+    algorithm_csv: str = 'algorithms_data.txt'
+    infrastructure_csv: str = 'infrastructure_data.txt'
     cost_benefit_csv: str = 'cost_benefit_data.txt'
     
     # Network parameters
