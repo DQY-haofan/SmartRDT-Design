@@ -1,9 +1,20 @@
 {
     "road_network_length_km": 500,
     "planning_horizon_years": 10,
-    "budget_cap_usd": 20000000,
+    "budget_cap_usd": 10000000,
     "daily_wage_per_person": 1500,
     "min_recall_threshold": 0.70,
     "max_latency_seconds": 180,
-    "data_retention_years": 3
+    "data_retention_years": 3,
+    
+    "population_size": 200,
+    "n_generations": 100,
+    "crossover_prob": 0.9,
+    "mutation_eta": 20,
+    
+    "scenario_type": "urban",
+    "carbon_intensity_factor": 0.417,
+    
+    "fos_sensor_spacing_km": 0.1,
+    "enable_debug_output": true
 }

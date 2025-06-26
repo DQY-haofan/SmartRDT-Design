@@ -135,49 +135,174 @@ class EnhancedFitnessEvaluatorV2:
         return default
     
     def _calculate_total_cost_v2(self, config: Dict) -> float:
-        """增强版成本计算 - 实现年化资本成本"""
+        """
+        增强版成本计算 - 包含FOS修复和年化资本成本
         
-        # 初始投资
-        total_initial = 0
-        for comp_type in ['sensor', 'storage', 'communication', 'deployment']:
-            if comp_type in config:
-                cost = self._query_property(config[comp_type], str(RDTCO.hasInitialCostUSD), 0)
-                total_initial += cost if cost else 0
+        成本组成：
+        1. 初始投资（设备+安装）
+        2. 年化资本成本（折旧）
+        3. 运营成本（能源+维护）
+        4. 人力成本
+        """
         
-        # 年化资本成本（专家建议）
-        annual_capital_cost = total_initial * self.config.depreciation_rate
+        # 提取传感器名称
+        sensor_name = str(config['sensor']).split('#')[-1]
         
-        # 运营成本
+        # ========== 1. 计算初始投资成本 ==========
+        
+        # 获取单个传感器成本
+        sensor_initial_cost = self._query_property(
+            config['sensor'], str(RDTCO.hasInitialCostUSD), 100000)
+        
+        # 关键修复：FOS需要多个传感器覆盖整个网络
+        if 'FOS' in sensor_name or 'Fiber' in sensor_name:
+            # 光纤传感器需要沿道路密集部署
+            sensor_spacing_km = getattr(self.config, 'fos_sensor_spacing_km', 0.1)  # 默认每100米一个
+            sensors_needed = self.config.road_network_length_km / sensor_spacing_km
+            
+            # 实际传感器成本 = 单价 × 数量
+            actual_sensor_cost = sensor_initial_cost * sensors_needed
+            
+            # 安装成本（每个传感器点的安装费用）
+            installation_cost_per_sensor = 5000  # 包括挖掘、布线、保护等
+            total_installation_cost = installation_cost_per_sensor * sensors_needed
+            
+            # FOS的总初始成本
+            total_sensor_initial = actual_sensor_cost + total_installation_cost
+            
+            logger.debug(f"FOS cost: {sensors_needed:.0f} sensors × ${sensor_initial_cost:.0f} "
+                        f"+ ${total_installation_cost:.0f} installation = ${total_sensor_initial:.0f}")
+        else:
+            # 移动传感器只需要一套设备
+            total_sensor_initial = sensor_initial_cost
+        
+        # 其他组件的初始成本
+        storage_initial = self._query_property(
+            config['storage'], str(RDTCO.hasInitialCostUSD), 0)
+        comm_initial = self._query_property(
+            config['communication'], str(RDTCO.hasInitialCostUSD), 0)
+        deployment_initial = self._query_property(
+            config['deployment'], str(RDTCO.hasInitialCostUSD), 0)
+        
+        # 算法开发/许可成本
+        algo_initial = self._query_property(
+            config['algorithm'], str(RDTCO.hasInitialCostUSD), 20000)
+        
+        # 总初始投资
+        total_initial_investment = (total_sensor_initial + storage_initial + 
+                                comm_initial + deployment_initial + algo_initial)
+        
+        # ========== 2. 计算年化资本成本（折旧） ==========
+        
+        depreciation_rate = getattr(self.config, 'depreciation_rate', 0.1)  # 10年折旧
+        annual_capital_cost = total_initial_investment * depreciation_rate
+        
+        # ========== 3. 计算年度运营成本 ==========
+        
+        # 传感器运营成本
         sensor_daily_cost = self._query_property(
-            config['sensor'], str(RDTCO.hasOperationalCostUSDPerDay), 0)
+            config['sensor'], str(RDTCO.hasOperationalCostUSDPerDay), 100)
         
+        # 覆盖效率（km/day）
         coverage_km_day = self._query_property(
             config['sensor'], str(RDTCO.hasCoverageEfficiencyKmPerDay), 80)
         
-        annual_operational = 0
-        
         if coverage_km_day > 0:  # 移动传感器
-            inspections_year = 365 / config['inspection_cycle']
+            # 每年需要的巡检次数
+            inspections_per_year = 365 / config['inspection_cycle']
+            # 每次巡检需要的天数
             days_per_inspection = self.config.road_network_length_km / coverage_km_day
-            annual_operational = sensor_daily_cost * days_per_inspection * inspections_year
+            # 年度传感器运营成本
+            sensor_annual_operational = sensor_daily_cost * days_per_inspection * inspections_per_year
+        else:  # 固定传感器（FOS）
+            if 'FOS' in sensor_name:
+                # FOS的运营成本包括：电力、数据传输、定期检查
+                # 假设每个传感器点每天0.5美元的运营成本
+                operational_cost_per_sensor_day = 0.5
+                sensors_needed = self.config.road_network_length_km / sensor_spacing_km
+                sensor_annual_operational = operational_cost_per_sensor_day * sensors_needed * 365
+            else:
+                # 其他固定传感器
+                sensor_annual_operational = sensor_daily_cost * 365
+        
+        # 其他组件的年度运营成本
+        storage_annual = self._query_property(
+            config['storage'], str(RDTCO.hasAnnualOpCostUSD), 5000)
+        comm_annual = self._query_property(
+            config['communication'], str(RDTCO.hasAnnualOpCostUSD), 2000)
+        deployment_annual = self._query_property(
+            config['deployment'], str(RDTCO.hasAnnualOpCostUSD), 10000)
+        
+        # ========== 4. 计算人力成本 ==========
+        
+        # 获取操作员技能等级
+        skill_level = self._query_property(
+            config['sensor'], str(RDTCO.hasOperatorSkillLevel), 'Basic')
+        
+        # 技能等级工资乘数
+        skill_multiplier = {
+            'Basic': 1.0,
+            'Intermediate': 1.5,
+            'Expert': 2.0
+        }.get(str(skill_level), 1.0)
+        
+        # 基础日工资
+        daily_wage = self.config.daily_wage_per_person * skill_multiplier
+        
+        if coverage_km_day > 0:  # 移动传感器需要操作员
+            # 年度人力成本
+            crew_annual_cost = (config['crew_size'] * daily_wage * 
+                            days_per_inspection * inspections_per_year)
         else:  # 固定传感器
-            annual_operational = sensor_daily_cost * 365
+            if 'FOS' in sensor_name:
+                # FOS只需要偶尔的维护检查，假设每年10天
+                maintenance_days_per_year = 10
+                crew_annual_cost = config['crew_size'] * daily_wage * maintenance_days_per_year
+            else:
+                # 其他固定传感器
+                crew_annual_cost = config['crew_size'] * daily_wage * 20
         
-        # 人力成本
-        skill_level = self._query_property(config['sensor'], str(RDTCO.hasOperatorSkillLevel), 'Basic')
-        skill_mult = {'Basic': 1.0, 'Intermediate': 1.5, 'Expert': 2.0}.get(str(skill_level), 1.0)
+        # ========== 5. 计算数据标注成本（仅深度学习） ==========
         
-        if coverage_km_day > 0:
-            crew_cost_year = (config['crew_size'] * self.config.daily_wage_per_person * 
-                            skill_mult * days_per_inspection * inspections_year)
-        else:
-            crew_cost_year = config['crew_size'] * self.config.daily_wage_per_person * skill_mult * 10
+        data_annotation_annual = 0
+        if 'DL' in str(config['algorithm']) or 'Deep' in str(config['algorithm']):
+            # 深度学习需要持续的数据标注
+            annotation_cost_per_image = self._query_property(
+                config['algorithm'], str(RDTCO.hasDataAnnotationCostUSD), 0.5)
+            
+            # 估算年度图像数量
+            if 'Camera' in sensor_name:
+                images_per_km = 100  # 每公里100张图像
+                annual_images = images_per_km * self.config.road_network_length_km * inspections_per_year
+            else:
+                annual_images = 10000  # 其他传感器的默认值
+            
+            data_annotation_annual = annotation_cost_per_image * annual_images
         
-        annual_operational += crew_cost_year
+        # ========== 6. 总成本计算 ==========
         
-        # 总成本
-        total_annual = annual_capital_cost + annual_operational
-        return total_annual * self.config.planning_horizon_years
+        # 年度总成本
+        total_annual_cost = (annual_capital_cost + 
+                            sensor_annual_operational + 
+                            storage_annual + 
+                            comm_annual + 
+                            deployment_annual + 
+                            crew_annual_cost + 
+                            data_annotation_annual)
+        
+        # 全生命周期总成本
+        total_lifecycle_cost = total_annual_cost * self.config.planning_horizon_years
+        
+        # 添加季节性调整（如果适用）
+        if hasattr(self.config, 'seasonal_factor'):
+            total_lifecycle_cost *= self.config.seasonal_factor
+        
+        logger.debug(f"Cost breakdown for {sensor_name}: "
+                    f"Initial=${total_initial_investment:.0f}, "
+                    f"Annual=${total_annual_cost:.0f}, "
+                    f"Total=${total_lifecycle_cost:.0f}")
+        
+        return total_lifecycle_cost
     
     def _calculate_detection_performance_v2(self, config: Dict) -> float:
         """增强版检测性能 - 类别不平衡惩罚"""
