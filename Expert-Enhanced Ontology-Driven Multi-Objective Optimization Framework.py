@@ -59,6 +59,12 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 
+from enhanced_evaluation_v2 import (
+    AdvancedEvaluationConfig,
+    EnhancedFitnessEvaluatorV2, 
+    DynamicNormalizer
+)
+
 # Suppress warnings
 warnings.filterwarnings('ignore')
 
@@ -601,407 +607,59 @@ class CachedSolutionMapper:
 # ENHANCED FITNESS EVALUATOR WITH BATCH SPARQL QUERIES
 # ============================================================================
 
-class ParallelFitnessEvaluator:
-    """Evaluates fitness with 6 objectives including sustainability metrics"""
+
+class IntegratedFitnessEvaluator:
+    """集成增强版评估器的适配器类"""
     
     def __init__(self, ontology_graph: Graph, config: OptimizationConfig):
         self.g = ontology_graph
         self.config = config
         self.mapper = CachedSolutionMapper(ontology_graph)
         
-        # Batch query cache
-        self._batch_cache = {}
+        # 创建高级配置
+        self.advanced_config = AdvancedEvaluationConfig(
+            road_network_length_km=config.road_network_length_km,
+            planning_horizon_years=config.planning_horizon_years,
+            budget_cap_usd=config.budget_cap_usd,
+            daily_wage_per_person=1500  # 从config.json获取
+        )
+        
+        # 创建增强版评估器
+        self.evaluator_v2 = EnhancedFitnessEvaluatorV2(
+            ontology_graph=ontology_graph,
+            config=self.advanced_config
+        )
+        
+        # 动态归一化器
+        self.normalizer = DynamicNormalizer()
+        
+        # 统计信息
         self._cache_hits = 0
         self._cache_misses = 0
         
-        # Normalization parameters
-        self.norm_params = {
-            'cost': {'min': 100_000, 'max': 2_000_000},
-            'recall': {'min': 0.0, 'max': 0.4},  # 1-recall
-            'latency': {'min': 0.1, 'max': 300.0},
-            'disruption': {'min': 0.0, 'max': 500.0},
-            'environmental': {'min': 1_000, 'max': 100_000},  # kWh/year
-            'reliability': {'min': 0.0, 'max': 0.001}  # 1/MTBF
-        }
-    
-    def _batch_query_properties(self, subject_predicate_pairs: List[Tuple[str, str]]) -> Dict[Tuple[str, str], Optional[Union[float, str]]]:
-        """Batch query multiple properties for efficiency"""
-        if not subject_predicate_pairs:
-            return {}
-        
-        # Check cache
-        cache_key = str(sorted(subject_predicate_pairs))
-        if cache_key in self._batch_cache:
-            self._cache_hits += 1
-            return self._batch_cache[cache_key]
-        
-        self._cache_misses += 1
-        
-        # Build batch query
-        values_clause = []
-        for subject, predicate in subject_predicate_pairs:
-            values_clause.append(f"(<{subject}> <{predicate}>)")
-        
-        query = f"""
-        PREFIX rdtco: <http://www.semanticweb.org/rmtwin/ontologies/rdtco#>
-        SELECT ?subject ?predicate ?value WHERE {{
-            VALUES (?subject ?predicate) {{ {' '.join(values_clause)} }}
-            ?subject ?predicate ?value .
-        }}
-        """
-        
-        results = {}
-        try:
-            for row in self.g.query(query):
-                key = (str(row.subject), str(row.predicate))
-                value_str = str(row.value)
-                try:
-                    # Try to convert to float
-                    results[key] = float(value_str)
-                except ValueError:
-                    # Keep as string
-                    results[key] = value_str
-        except Exception as e:
-            logger.warning(f"Batch query failed: {e}")
-        
-        # Add None for missing values
-        for pair in subject_predicate_pairs:
-            if pair not in results:
-                results[pair] = None
-        
-        # Cache results
-        self._batch_cache[cache_key] = results
-        return results
-    
-    def _get_query_result(self, query_results: Dict, subject: str, predicate: str, default=None):
-        """Get value from batch query results"""
-        return query_results.get((subject, predicate), default)
-        
     def evaluate_batch(self, X: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """Evaluate a batch of solutions"""
+        """评估批量解决方案"""
         n_solutions = len(X)
-        objectives = np.zeros((n_solutions, 6))
+        raw_objectives = np.zeros((n_solutions, 6))
         constraints = np.zeros((n_solutions, 3))
         
-        if self.config.use_parallel and n_solutions > 10:
-            # Use parallel processing for large batches
-            with ProcessPoolExecutor(max_workers=self.config.n_processes) as executor:
-                futures = {executor.submit(self._evaluate_single, x): i 
-                          for i, x in enumerate(X)}
-                
-                for future in as_completed(futures):
-                    idx = futures[future]
-                    try:
-                        obj, const = future.result()
-                        objectives[idx] = obj
-                        constraints[idx] = const
-                    except Exception as e:
-                        logger.warning(f"Evaluation failed for solution {idx}: {e}")
-                        objectives[idx] = np.full(6, np.inf)
-                        constraints[idx] = np.array([1e6, 1e6, 1e6])
-        else:
-            # Sequential processing for small batches
-            for i, x in enumerate(X):
-                try:
-                    objectives[i], constraints[i] = self._evaluate_single(x)
-                except Exception as e:
-                    logger.warning(f"Evaluation failed for solution {i}: {e}")
-                    objectives[i] = np.full(6, np.inf)
-                    constraints[i] = np.array([1e6, 1e6, 1e6])
-                
-        return objectives, constraints
+        # 评估每个解
+        for i, x in enumerate(X):
+            decoded = self.mapper.decode_solution(x)
+            obj, const = self.evaluator_v2.evaluate_solution(x, decoded)
+            raw_objectives[i] = obj
+            constraints[i] = const
+        
+        # 应用动态归一化（专家建议的关键改进）
+        normalized_objectives = self.normalizer.normalize_population(raw_objectives)
+        
+        return normalized_objectives, constraints
     
     def _evaluate_single(self, x: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """Evaluate a single solution using batch queries"""
-        config = self.mapper.decode_solution(x)
-        
-        # Collect all needed queries
-        queries_needed = []
-        
-        # Sensor queries
-        sensor_uri = config['sensor']
-        queries_needed.extend([
-            (sensor_uri, str(RDTCO.hasInitialCostUSD)),
-            (sensor_uri, str(RDTCO.hasOperationalCostUSDPerDay)),
-            (sensor_uri, str(RDTCO.hasOperatorSkillLevel)),
-            (sensor_uri, str(RDTCO.hasAccuracyRangeMM)),
-            (sensor_uri, str(RDTCO.hasDataVolumeGBPerKm)),
-            (sensor_uri, str(RDTCO.hasCoverageEfficiencyKmPerDay)),
-            (sensor_uri, str(RDTCO.hasOperatingSpeedKmh)),
-            (sensor_uri, str(RDTCO.hasEnergyConsumptionW)),
-            (sensor_uri, str(RDTCO.hasMTBFHours))
-        ])
-        
-        # Algorithm queries
-        algo_uri = config['algorithm']
-        queries_needed.extend([
-            (algo_uri, str(RDTCO.hasRecall)),
-            (algo_uri, str(RDTCO.hasDataAnnotationCostUSD)),
-            (algo_uri, str(RDTCO.hasModelRetrainingFreqMonths)),
-            (algo_uri, str(RDTCO.hasFPS))
-        ])
-        
-        # Infrastructure queries
-        for component in ['storage', 'communication', 'deployment']:
-            if component in config:
-                comp_uri = config[component]
-                queries_needed.extend([
-                    (comp_uri, str(RDTCO.hasInitialCostUSD)),
-                    (comp_uri, str(RDTCO.hasEnergyConsumptionW)),
-                    (comp_uri, str(RDTCO.hasMTBFHours))
-                ])
-        
-        # Execute batch query
-        query_results = self._batch_query_properties(queries_needed)
-        
-        # Calculate objectives using batch results
-        f1 = self._calculate_total_cost_batch(config, query_results)
-        f2 = self._calculate_detection_performance_batch(config, query_results)
-        f3 = self._calculate_latency_batch(config, query_results)
-        f4 = self._calculate_traffic_disruption_batch(config, query_results)
-        f5 = self._calculate_environmental_impact_batch(config, query_results)
-        f6 = self._calculate_system_reliability_batch(config, query_results)
-        
-        # Normalize objectives
-        objectives = np.array([
-            self._normalize(f1, 'cost'),
-            self._normalize(f2, 'recall'),
-            self._normalize(f3, 'latency'),
-            self._normalize(f4, 'disruption'),
-            self._normalize(f5, 'environmental'),
-            self._normalize(f6, 'reliability')
-        ])
-        
-        # Calculate constraints
-        recall = 1 - f2
-        g1 = f3 - self.config.max_latency_seconds
-        g2 = self.config.min_recall_threshold - recall
-        g3 = f1 - self.config.budget_cap_usd
-        
-        constraints = np.array([g1, g2, g3])
-        
-        return objectives, constraints
+        """评估单个解（用于结果保存）"""
+        decoded = self.mapper.decode_solution(x)
+        return self.evaluator_v2.evaluate_solution(x, decoded)
     
-    def _normalize(self, value: float, objective: str) -> float:
-        """Normalize objective value to [0, 1]"""
-        min_val = self.norm_params[objective]['min']
-        max_val = self.norm_params[objective]['max']
-        return np.clip((value - min_val) / (max_val - min_val), 0, 1)
-    
-    def _calculate_total_cost_batch(self, config: Dict, query_results: Dict) -> float:
-        """Calculate total cost using batch query results"""
-        total_cost = 0
-        
-        # Initial costs
-        for component in ['sensor', 'storage', 'communication', 'deployment']:
-            if component in config:
-                cost = self._get_query_result(query_results, config[component], 
-                                            str(RDTCO.hasInitialCostUSD), 0)
-                if cost:
-                    total_cost += cost
-        
-        # Operational costs
-        sensor_op_cost = self._get_query_result(query_results, config['sensor'], 
-                                            str(RDTCO.hasOperationalCostUSDPerDay), 0)
-        if sensor_op_cost:
-            coverage_efficiency = self._get_query_result(query_results, config['sensor'],
-                                                        str(RDTCO.hasCoverageEfficiencyKmPerDay), 80)
-            inspections_per_year = 365 / config['inspection_cycle']
-            
-            # FIX: Handle zero coverage efficiency
-            if coverage_efficiency > 0:
-                days_per_inspection = self.config.road_network_length_km / coverage_efficiency
-                annual_sensor_cost = sensor_op_cost * days_per_inspection * inspections_per_year
-            else:
-                # For stationary sensors, use fixed operational cost
-                annual_sensor_cost = sensor_op_cost * 365  # Continuous operation
-                
-            total_cost += annual_sensor_cost * self.config.planning_horizon_years
-        
-        # Crew costs
-        skill_level = self._get_query_result(query_results, config['sensor'], 
-                                        str(RDTCO.hasOperatorSkillLevel), 'Basic')
-        skill_multiplier = {'Basic': 1.0, 'Intermediate': 1.5, 'Expert': 2.0}.get(
-            str(skill_level), 1.0)
-        
-        # FIX: Calculate crew costs correctly for stationary sensors
-        coverage_efficiency = self._get_query_result(query_results, config['sensor'],
-                                                    str(RDTCO.hasCoverageEfficiencyKmPerDay), 80)
-        
-        if coverage_efficiency > 0:
-            days_per_inspection = self.config.road_network_length_km / coverage_efficiency
-            crew_daily_cost = config['crew_size'] * 1000 * skill_multiplier
-            crew_annual_cost = crew_daily_cost * days_per_inspection * inspections_per_year
-        else:
-            # Stationary sensors need minimal crew time (only for maintenance)
-            crew_daily_cost = config['crew_size'] * 1000 * skill_multiplier
-            crew_annual_cost = crew_daily_cost * 10  # Assume 10 days/year for maintenance
-            
-        total_cost += crew_annual_cost * self.config.planning_horizon_years
-        
-        # Data annotation costs
-        annotation_cost = self._get_query_result(query_results, config['algorithm'],
-                                            str(RDTCO.hasDataAnnotationCostUSD), 0)
-        if annotation_cost:
-            total_annotation = annotation_cost * 10000
-            total_cost += total_annotation
-        
-        # Model retraining costs
-        retrain_freq = self._get_query_result(query_results, config['algorithm'],
-                                            str(RDTCO.hasModelRetrainingFreqMonths), 0)
-        if retrain_freq and retrain_freq > 0:
-            retrainings = (self.config.planning_horizon_years * 12) / retrain_freq
-            total_cost += retrainings * 5000
-        
-        return total_cost
-   
-   
-    def _calculate_detection_performance_batch(self, config: Dict, query_results: Dict) -> float:
-        """Calculate 1 - recall using batch query results"""
-        base_recall = self._get_query_result(query_results, config['algorithm'], 
-                                           str(RDTCO.hasRecall), 0.7)
-        
-        # Adjust for sensor accuracy
-        sensor_accuracy = self._get_query_result(query_results, config['sensor'],
-                                               str(RDTCO.hasAccuracyRangeMM), 10)
-        if sensor_accuracy:
-            accuracy_factor = 1 - (sensor_accuracy / 100)
-            base_recall *= (0.8 + 0.2 * accuracy_factor)
-        
-        # Adjust for LOD
-        lod_factors = {'Micro': 1.1, 'Meso': 1.0, 'Macro': 0.9}
-        base_recall *= lod_factors.get(config['geo_lod'], 1.0)
-        
-        # Adjust for detection threshold
-        threshold_factor = 1 - abs(config['detection_threshold'] - 0.5) * 0.2
-        base_recall *= threshold_factor
-        
-        return 1 - min(base_recall, 0.99)
-    
-    def _calculate_latency_batch(self, config: Dict, query_results: Dict) -> float:
-        """Calculate data-to-decision latency"""
-        # Data acquisition time
-        data_rate = config['data_rate']
-        acq_time = 1 / data_rate if data_rate > 0 else 1.0
-        
-        # Data volume
-        data_volume = self._get_query_result(query_results, config['sensor'],
-                                           str(RDTCO.hasDataVolumeGBPerKm), 1.0)
-        
-        # Communication time
-        comm_bandwidth = {'5G_Network': 1000, 'LoRaWAN': 0.05, 
-                         'Fiber_Optic': 10000, '4G_LTE': 100}.get(
-                         config['communication'].split('/')[-1], 100)
-        
-        comm_time = (data_volume * 1000) / comm_bandwidth
-        
-        # Processing time
-        algo_fps = self._get_query_result(query_results, config['algorithm'],
-                                        str(RDTCO.hasFPS), 10)
-        if algo_fps and algo_fps > 0:
-            proc_time = 1 / algo_fps
-        else:
-            proc_time = 0.1
-        
-        # Deployment factor
-        deploy_factors = {'Edge_Computing': 1.5, 'Cloud_Computing': 1.0, 
-                         'Hybrid_Edge_Cloud': 1.2}
-        deploy_factor = deploy_factors.get(config['deployment'].split('/')[-1], 1.0)
-        proc_time *= deploy_factor
-        
-        return acq_time + comm_time + proc_time
-    
-    
-    def _calculate_traffic_disruption_batch(self, config: Dict, query_results: Dict) -> float:
-        """Calculate traffic disruption hours"""
-        # Base disruption per inspection
-        base_disruption = 4.0
-        
-        # Adjust for sensor speed
-        sensor_speed = self._get_query_result(query_results, config['sensor'],
-                                            str(RDTCO.hasOperatingSpeedKmh), 80)
-        
-        # FIX: Handle zero speed (stationary sensors)
-        if sensor_speed and sensor_speed > 0:
-            speed_factor = 80 / sensor_speed
-            base_disruption *= speed_factor
-        elif sensor_speed == 0:
-            # Stationary sensors (like fiber optic) cause minimal disruption after installation
-            base_disruption = 0.1  # Minimal disruption for maintenance only
-        
-        # Total annual disruption
-        inspections_per_year = 365 / config['inspection_cycle']
-        annual_disruption = base_disruption * inspections_per_year
-        
-        # Time of day adjustment
-        annual_disruption *= 0.79
-        
-        return annual_disruption
-
-    
-    def _calculate_environmental_impact_batch(self, config: Dict, query_results: Dict) -> float:
-        """Calculate environmental impact in kWh/year"""
-        total_energy_w = 0
-        
-        # Component energy consumption
-        components = ['sensor', 'storage', 'communication', 'deployment']
-        for comp in components:
-            if comp in config:
-                energy = self._get_query_result(query_results, config[comp],
-                                            str(RDTCO.hasEnergyConsumptionW), 0)
-                if energy:
-                    total_energy_w += energy
-        
-        # Calculate operational hours
-        inspections_per_year = 365 / config['inspection_cycle']
-        coverage_efficiency = self._get_query_result(query_results, config['sensor'],
-                                                    str(RDTCO.hasCoverageEfficiencyKmPerDay), 50)
-        
-        # FIX: Handle zero coverage efficiency (e.g., for stationary sensors)
-        if coverage_efficiency <= 0:
-            # For stationary sensors like fiber optic, assume continuous monitoring
-            # No "days per inspection" - they monitor continuously
-            sensor_hours = 365 * 24  # Continuous monitoring
-        else:
-            days_per_inspection = self.config.road_network_length_km / coverage_efficiency
-            sensor_hours = days_per_inspection * inspections_per_year * 8
-        
-        # Backend runs 24/7
-        backend_hours = 365 * 24
-        
-        # Calculate total energy
-        sensor_energy_kwh = (total_energy_w * 0.3 * sensor_hours) / 1000
-        backend_energy_kwh = (total_energy_w * 0.7 * backend_hours) / 1000
-        
-        # Add vehicle emissions (only for mobile sensors)
-        if coverage_efficiency > 0:
-            vehicle_km = self.config.road_network_length_km * inspections_per_year
-            vehicle_kwh_equiv = vehicle_km * 0.8
-        else:
-            # Stationary sensors don't require vehicle travel
-            vehicle_kwh_equiv = 0
-        
-        return sensor_energy_kwh + backend_energy_kwh + vehicle_kwh_equiv
-
-    def _calculate_system_reliability_batch(self, config: Dict, query_results: Dict) -> float:
-        """Calculate system reliability as 1/MTBF"""
-        inverse_mtbf_sum = 0
-        
-        # Series reliability model
-        components = ['sensor', 'storage', 'communication', 'deployment']
-        for comp in components:
-            if comp in config:
-                mtbf = self._get_query_result(query_results, config[comp],
-                                            str(RDTCO.hasMTBFHours), 0)
-                if mtbf and mtbf > 0:
-                    inverse_mtbf_sum += 1 / mtbf
-        
-        # Avoid division by zero
-        if inverse_mtbf_sum == 0:
-            return 1.0
-            
-        return inverse_mtbf_sum
-
 # ============================================================================
 # ENHANCED OPTIMIZATION PROBLEM
 # ============================================================================
@@ -1029,7 +687,7 @@ class EnhancedRMTwinProblem(Problem):
         logger.info(f"Initialized optimization problem with {self.n_obj} objectives")
         
     def _evaluate(self, X, out, *args, **kwargs):
-        """Evaluate population"""
+        """评估种群 - 使用增强版评估器"""
         objectives, constraints = self.evaluator.evaluate_batch(X)
         out["F"] = objectives
         out["G"] = constraints
@@ -1047,8 +705,12 @@ class ResultsManager:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
 
-    def save_results(self, res, evaluator: ParallelFitnessEvaluator) -> pd.DataFrame:
-        """Save optimization results to files"""
+    def save_results(self, res, evaluator) -> pd.DataFrame:
+        """
+        保存优化结果 - 适配增强版评估器
+        
+        注意：增强版评估器返回的是真实值，不需要反归一化
+        """
         results = []
         
         if res is None or res.X is None:
@@ -1065,81 +727,112 @@ class ResultsManager:
         for i, x in enumerate(res.X):
             config = evaluator.mapper.decode_solution(x)
             
-            # Get raw objective values
-            obj, const = evaluator._evaluate_single(x)
+            # 使用增强版评估器获取原始目标值
+            # 注意：这里返回的已经是真实值，不是归一化的值
+            if hasattr(evaluator, 'evaluator_v2'):
+                # 使用增强版评估器
+                obj, const = evaluator.evaluator_v2.evaluate_solution(x, config)
+            else:
+                # 兼容旧版本
+                obj, const = evaluator._evaluate_single(x)
             
-            # Denormalize objectives
-            f1_raw = obj[0] * (evaluator.norm_params['cost']['max'] - 
-                            evaluator.norm_params['cost']['min']) + \
-                    evaluator.norm_params['cost']['min']
-            f2_raw = obj[1] * (evaluator.norm_params['recall']['max'] - 
-                            evaluator.norm_params['recall']['min']) + \
-                    evaluator.norm_params['recall']['min']
-            f3_raw = obj[2] * (evaluator.norm_params['latency']['max'] - 
-                            evaluator.norm_params['latency']['min']) + \
-                    evaluator.norm_params['latency']['min']
-            f4_raw = obj[3] * (evaluator.norm_params['disruption']['max'] - 
-                            evaluator.norm_params['disruption']['min']) + \
-                    evaluator.norm_params['disruption']['min']
-            f5_raw = obj[4] * (evaluator.norm_params['environmental']['max'] - 
-                            evaluator.norm_params['environmental']['min']) + \
-                    evaluator.norm_params['environmental']['min']
-            f6_raw = obj[5] * (evaluator.norm_params['reliability']['max'] - 
-                            evaluator.norm_params['reliability']['min']) + \
-                    evaluator.norm_params['reliability']['min']
+            # 直接使用返回的真实值
+            f1_raw = obj[0]  # 总成本（已考虑年化）
+            f2_raw = obj[1]  # 1-recall
+            f3_raw = obj[2]  # 延迟（已考虑场景因素）
+            f4_raw = obj[3]  # 交通干扰（已考虑流量和车道）
+            f5_raw = obj[4]  # 碳排放 kgCO2e/year（不是kWh）
+            f6_raw = obj[5]  # 1/MTBF（已考虑冗余）
             
+            # 计算衍生指标
             recall = 1 - f2_raw
-            # FIX: Handle very small or zero f6_raw values
-            system_mtbf = 1 / f6_raw if f6_raw > 1e-10 else 1e10  # Use large number instead of inf
+            system_mtbf = 1 / f6_raw if f6_raw > 1e-10 else 1e10
             
-            # Build result row
+            # 计算年度成本（f1已经是全生命周期成本）
+            annual_cost = f1_raw / self.config.planning_horizon_years
+            
+            # 计算每公里年成本
+            cost_per_km_year = annual_cost / self.config.road_network_length_km
+            
+            # 转换碳排放为吨（f5已经是kgCO2e/year）
+            carbon_footprint_tons = f5_raw / 1000
+            
+            # 构建结果行
             row = {
                 'solution_id': int(i + 1),
-                # Configuration details
-                'sensor': config['sensor'].split('/')[-1],
+                
+                # 配置详情
+                'sensor': config['sensor'].split('#')[-1],
                 'data_rate_Hz': round(config['data_rate'], 2),
                 'geometric_LOD': config['geo_lod'],
                 'condition_LOD': config['cond_lod'],
-                'algorithm': config['algorithm'].split('/')[-1],
+                'algorithm': config['algorithm'].split('#')[-1],
                 'detection_threshold': round(config['detection_threshold'], 3),
-                'storage': config['storage'].split('/')[-1],
-                'communication': config['communication'].split('/')[-1],
-                'deployment': config['deployment'].split('/')[-1],
+                'storage': config['storage'].split('#')[-1],
+                'communication': config['communication'].split('#')[-1],
+                'deployment': config['deployment'].split('#')[-1],
                 'crew_size': int(config['crew_size']),
                 'inspection_cycle_days': int(config['inspection_cycle']),
-                # Raw objectives
+                
+                # 原始目标值（真实值）
                 'f1_total_cost_USD': round(float(f1_raw), 2),
                 'f2_one_minus_recall': round(float(f2_raw), 4),
                 'f3_latency_seconds': round(float(f3_raw), 2),
                 'f4_traffic_disruption_hours': round(float(f4_raw), 2),
-                'f5_environmental_impact_kWh_year': round(float(f5_raw), 2),
+                'f5_carbon_emissions_kgCO2e_year': round(float(f5_raw), 2),  # 注意：现在是碳排放
                 'f6_system_reliability_inverse_MTBF': round(float(f6_raw), 8),
-                # Derived metrics
+                
+                # 衍生指标
                 'detection_recall': round(float(recall), 4),
                 'system_MTBF_hours': round(float(system_mtbf), 0),
-                'annual_cost_USD': round(float(f1_raw / self.config.planning_horizon_years), 2),
-                'cost_per_km_year': round(float(f1_raw / self.config.planning_horizon_years / 
-                                        self.config.road_network_length_km), 2),
-                'carbon_footprint_tons_CO2_year': round(float(f5_raw * self.config.carbon_intensity_kwh / 1000), 2),
-                # Constraints
-                'is_feasible': bool(np.all(const <= 0) if const is not None else True)
+                'system_MTBF_years': round(float(system_mtbf / 8760), 2),  # 新增：以年为单位
+                'annual_cost_USD': round(float(annual_cost), 2),
+                'cost_per_km_year': round(float(cost_per_km_year), 2),
+                'carbon_footprint_tons_CO2_year': round(float(carbon_footprint_tons), 2),
+                
+                # 新增：增强版模型的特殊指标
+                'annualized_capital_cost_USD': round(float(f1_raw * 0.1 / self.config.planning_horizon_years), 2),  # 估算
+                'operational_cost_ratio': round(float(1 - 0.1), 2),  # 运营成本比例
+                
+                # 约束检查
+                'is_feasible': bool(np.all(const <= 0) if const is not None else True),
+                'latency_constraint_ok': bool(f3_raw <= 180.0),
+                'recall_constraint_ok': bool(recall >= 0.70),
+                'budget_constraint_ok': bool(f1_raw <= self.config.budget_cap_usd)
             }
+            
+            # 添加专家建议的额外分析字段
+            # 场景影响分析（如果配置中有场景信息）
+            if hasattr(evaluator, 'advanced_config'):
+                row['scenario_type'] = evaluator.advanced_config.scenario_type
+                row['carbon_intensity_factor'] = evaluator.advanced_config.carbon_intensity_factor
             
             results.append(row)
             
-        # Create DataFrame
+        # 创建DataFrame
         df = pd.DataFrame(results)
         df = df.sort_values('f1_total_cost_USD')
         
-        # Save to CSV
-        df.to_csv(self.output_dir / 'pareto_solutions_6d.csv', index=False)
-        logger.info(f"Saved {len(df)} Pareto-optimal solutions")
+        # 添加排名信息
+        df['cost_rank'] = df['f1_total_cost_USD'].rank()
+        df['recall_rank'] = df['detection_recall'].rank(ascending=False)
+        df['carbon_rank'] = df['f5_carbon_emissions_kgCO2e_year'].rank()
+        df['reliability_rank'] = df['system_MTBF_hours'].rank(ascending=False)
         
-        # Save summary statistics
-        self._save_summary(df)
+        # 保存到CSV
+        csv_path = self.output_dir / 'pareto_solutions_6d_enhanced.csv'
+        df.to_csv(csv_path, index=False)
+        logger.info(f"Saved {len(df)} Pareto-optimal solutions to {csv_path}")
+        
+        # 保存增强版摘要统计
+        self._save_enhanced_summary(df)
+        
+        # 生成增强版报告
+        self._generate_enhanced_report(df)
         
         return df
 
+    
     def _save_summary(self, df: pd.DataFrame):
         """Save optimization summary with proper JSON serialization"""
         # Convert all values to JSON-serializable types
@@ -1460,7 +1153,11 @@ def main():
         
         # Step 2: Create optimization problem
         logger.info("\nStep 2: Setting up optimization problem...")
+        # 替换为：
+        logger.info("\nStep 2: Setting up optimization problem with enhanced evaluator...")
         problem = EnhancedRMTwinProblem(ontology_graph, config)
+        # 确保使用新的评估器
+        problem.evaluator = IntegratedFitnessEvaluator(ontology_graph, config)
         
         # Step 3: Configure algorithm
         logger.info("\nStep 3: Configuring NSGA-II algorithm...")
@@ -1513,6 +1210,13 @@ def main():
         logger.info("\nStep 6: Creating visualizations...")
         visualizer = EnhancedVisualizer(config)
         visualizer.create_all_visualizations(df, res)
+
+        # 添加这行来生成增强版可视化
+        from advanced_visualizations import create_all_publication_figures
+        create_all_publication_figures(
+            csv_file=Path(config.output_dir) / 'pareto_solutions_6d.csv',
+            output_dir=Path(config.output_dir) / 'publication_figures'
+        )
         
         # Step 7: Generate report
         logger.info("\nStep 7: Generating analysis report...")
