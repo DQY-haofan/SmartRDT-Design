@@ -885,6 +885,7 @@ class ParallelFitnessEvaluator:
         
         return acq_time + comm_time + proc_time
     
+    
     def _calculate_traffic_disruption_batch(self, config: Dict, query_results: Dict) -> float:
         """Calculate traffic disruption hours"""
         # Base disruption per inspection
@@ -893,9 +894,14 @@ class ParallelFitnessEvaluator:
         # Adjust for sensor speed
         sensor_speed = self._get_query_result(query_results, config['sensor'],
                                             str(RDTCO.hasOperatingSpeedKmh), 80)
+        
+        # FIX: Handle zero speed (stationary sensors)
         if sensor_speed and sensor_speed > 0:
             speed_factor = 80 / sensor_speed
             base_disruption *= speed_factor
+        elif sensor_speed == 0:
+            # Stationary sensors (like fiber optic) cause minimal disruption after installation
+            base_disruption = 0.1  # Minimal disruption for maintenance only
         
         # Total annual disruption
         inspections_per_year = 365 / config['inspection_cycle']
@@ -905,6 +911,7 @@ class ParallelFitnessEvaluator:
         annual_disruption *= 0.79
         
         return annual_disruption
+
     
     def _calculate_environmental_impact_batch(self, config: Dict, query_results: Dict) -> float:
         """Calculate environmental impact in kWh/year"""
@@ -915,7 +922,7 @@ class ParallelFitnessEvaluator:
         for comp in components:
             if comp in config:
                 energy = self._get_query_result(query_results, config[comp],
-                                              str(RDTCO.hasEnergyConsumptionW), 0)
+                                            str(RDTCO.hasEnergyConsumptionW), 0)
                 if energy:
                     total_energy_w += energy
         
@@ -924,8 +931,14 @@ class ParallelFitnessEvaluator:
         coverage_efficiency = self._get_query_result(query_results, config['sensor'],
                                                     str(RDTCO.hasCoverageEfficiencyKmPerDay), 50)
         
-        days_per_inspection = self.config.road_network_length_km / coverage_efficiency
-        sensor_hours = days_per_inspection * inspections_per_year * 8
+        # FIX: Handle zero coverage efficiency (e.g., for stationary sensors)
+        if coverage_efficiency <= 0:
+            # For stationary sensors like fiber optic, assume continuous monitoring
+            # No "days per inspection" - they monitor continuously
+            sensor_hours = 365 * 24  # Continuous monitoring
+        else:
+            days_per_inspection = self.config.road_network_length_km / coverage_efficiency
+            sensor_hours = days_per_inspection * inspections_per_year * 8
         
         # Backend runs 24/7
         backend_hours = 365 * 24
@@ -934,12 +947,16 @@ class ParallelFitnessEvaluator:
         sensor_energy_kwh = (total_energy_w * 0.3 * sensor_hours) / 1000
         backend_energy_kwh = (total_energy_w * 0.7 * backend_hours) / 1000
         
-        # Add vehicle emissions
-        vehicle_km = self.config.road_network_length_km * inspections_per_year
-        vehicle_kwh_equiv = vehicle_km * 0.8
+        # Add vehicle emissions (only for mobile sensors)
+        if coverage_efficiency > 0:
+            vehicle_km = self.config.road_network_length_km * inspections_per_year
+            vehicle_kwh_equiv = vehicle_km * 0.8
+        else:
+            # Stationary sensors don't require vehicle travel
+            vehicle_kwh_equiv = 0
         
         return sensor_energy_kwh + backend_energy_kwh + vehicle_kwh_equiv
-    
+
     def _calculate_system_reliability_batch(self, config: Dict, query_results: Dict) -> float:
         """Calculate system reliability as 1/MTBF"""
         inverse_mtbf_sum = 0
@@ -1003,6 +1020,7 @@ class ResultsManager:
         self.output_dir = Path(config.output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
+
     def save_results(self, res, evaluator: ParallelFitnessEvaluator) -> pd.DataFrame:
         """Save optimization results to files"""
         results = []
@@ -1026,26 +1044,27 @@ class ResultsManager:
             
             # Denormalize objectives
             f1_raw = obj[0] * (evaluator.norm_params['cost']['max'] - 
-                             evaluator.norm_params['cost']['min']) + \
+                            evaluator.norm_params['cost']['min']) + \
                     evaluator.norm_params['cost']['min']
             f2_raw = obj[1] * (evaluator.norm_params['recall']['max'] - 
-                             evaluator.norm_params['recall']['min']) + \
+                            evaluator.norm_params['recall']['min']) + \
                     evaluator.norm_params['recall']['min']
             f3_raw = obj[2] * (evaluator.norm_params['latency']['max'] - 
-                             evaluator.norm_params['latency']['min']) + \
+                            evaluator.norm_params['latency']['min']) + \
                     evaluator.norm_params['latency']['min']
             f4_raw = obj[3] * (evaluator.norm_params['disruption']['max'] - 
-                             evaluator.norm_params['disruption']['min']) + \
+                            evaluator.norm_params['disruption']['min']) + \
                     evaluator.norm_params['disruption']['min']
             f5_raw = obj[4] * (evaluator.norm_params['environmental']['max'] - 
-                             evaluator.norm_params['environmental']['min']) + \
+                            evaluator.norm_params['environmental']['min']) + \
                     evaluator.norm_params['environmental']['min']
             f6_raw = obj[5] * (evaluator.norm_params['reliability']['max'] - 
-                             evaluator.norm_params['reliability']['min']) + \
+                            evaluator.norm_params['reliability']['min']) + \
                     evaluator.norm_params['reliability']['min']
             
             recall = 1 - f2_raw
-            system_mtbf = 1 / f6_raw if f6_raw > 0 else float('inf')
+            # FIX: Handle very small or zero f6_raw values
+            system_mtbf = 1 / f6_raw if f6_raw > 1e-10 else 1e10  # Use large number instead of inf
             
             # Build result row
             row = {
@@ -1074,7 +1093,7 @@ class ResultsManager:
                 'system_MTBF_hours': round(float(system_mtbf), 0),
                 'annual_cost_USD': round(float(f1_raw / self.config.planning_horizon_years), 2),
                 'cost_per_km_year': round(float(f1_raw / self.config.planning_horizon_years / 
-                                         self.config.road_network_length_km), 2),
+                                        self.config.road_network_length_km), 2),
                 'carbon_footprint_tons_CO2_year': round(float(f5_raw * self.config.carbon_intensity_kwh / 1000), 2),
                 # Constraints
                 'is_feasible': bool(np.all(const <= 0) if const is not None else True)
@@ -1094,7 +1113,7 @@ class ResultsManager:
         self._save_summary(df)
         
         return df
-        
+
     def _save_summary(self, df: pd.DataFrame):
         """Save optimization summary with proper JSON serialization"""
         # Convert all values to JSON-serializable types
