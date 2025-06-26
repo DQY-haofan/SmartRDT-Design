@@ -365,60 +365,191 @@ class CachedSolutionMapper:
         self._cache_components()
         
     
-    def _cache_components(self):
-        """Cache all available components from ontology"""
-        # Cache sensors
-        self.sensors = []
-        for s in self.g.subjects(RDF.type, None):
-            for t in self.g.objects(s, RDF.type):
-                if 'Sensor' in str(t) and 'System' in str(t):
-                    self.sensors.append(str(s))
+
+def _cache_components(self):
+    """Cache all available components from ontology - FIXED VERSION"""
+    
+    # Initialize empty lists
+    self.sensors = []
+    self.algorithms = []
+    self.storage_systems = []
+    self.comm_systems = []
+    self.deployments = []
+    
+    # Debug: Print all triples to understand the structure
+    logger.info("DEBUG: Examining ontology structure...")
+    type_count = 0
+    for s, p, o in self.g:
+        if str(p).endswith('type'):
+            type_count += 1
+            if type_count <= 5:  # Print first 5 for debugging
+                logger.info(f"  Triple: {s} -- {p} --> {o}")
+    
+    # Method 1: Direct triple iteration (most reliable)
+    sensor_type_keywords = [
+        'MMS_LiDAR_System', 'MMS_Camera_System', 'UAV_LiDAR_System',
+        'UAV_Camera_System', 'TLS_System', 'Handheld_3D_Scanner',
+        'FiberOptic_Sensor', 'Vehicle_LowCost_Sensor', 'IoT_Network_System'
+    ]
+    
+    algorithm_keywords = ['Algorithm']
+    storage_keywords = ['StorageSystem']
+    comm_keywords = ['CommunicationSystem']
+    deploy_keywords = ['ComputeDeployment', 'Deployment']
+    
+    # Iterate through all triples
+    for s, p, o in self.g:
+        subject_str = str(s)
+        predicate_str = str(p)
+        object_str = str(o)
         
-        # Cache algorithms
-        self.algorithms = []
-        for s in self.g.subjects(RDF.type, None):
-            for t in self.g.objects(s, RDF.type):
-                if 'Algorithm' in str(t):
-                    self.algorithms.append(str(s))
-        
-        # Cache storage
-        self.storage_systems = []
-        for s in self.g.subjects(RDF.type, RDTCO.StorageSystem):
-            self.storage_systems.append(str(s))
-        
-        # Cache communication
-        self.comm_systems = []
-        for s in self.g.subjects(RDF.type, RDTCO.CommunicationSystem):
-            self.comm_systems.append(str(s))
-        
-        # Cache deployment
-        self.deployments = []
-        for s in self.g.subjects(RDF.type, RDTCO.ComputeDeployment):
-            self.deployments.append(str(s))
+        # Check if this is a type assertion
+        if predicate_str.endswith('type') or predicate_str.endswith('#type'):
+            # For sensors
+            for keyword in sensor_type_keywords:
+                if keyword in object_str:
+                    if subject_str not in self.sensors:
+                        self.sensors.append(subject_str)
+                        logger.debug(f"Found sensor: {subject_str} of type {object_str}")
+                    break
             
-        logger.info(f"Cached components: {len(self.sensors)} sensors, "
-                   f"{len(self.algorithms)} algorithms, {len(self.storage_systems)} storage, "
-                   f"{len(self.comm_systems)} communication, {len(self.deployments)} deployment")
+            # For algorithms
+            for keyword in algorithm_keywords:
+                if keyword in object_str:
+                    if subject_str not in self.algorithms:
+                        self.algorithms.append(subject_str)
+                        logger.debug(f"Found algorithm: {subject_str} of type {object_str}")
+                    break
+            
+            # For storage
+            for keyword in storage_keywords:
+                if keyword in object_str:
+                    if subject_str not in self.storage_systems:
+                        self.storage_systems.append(subject_str)
+                        logger.debug(f"Found storage: {subject_str} of type {object_str}")
+                    break
+            
+            # For communication
+            for keyword in comm_keywords:
+                if keyword in object_str:
+                    if subject_str not in self.comm_systems:
+                        self.comm_systems.append(subject_str)
+                        logger.debug(f"Found comm: {subject_str} of type {object_str}")
+                    break
+            
+            # For deployment
+            for keyword in deploy_keywords:
+                if keyword in object_str:
+                    if subject_str not in self.deployments:
+                        self.deployments.append(subject_str)
+                        logger.debug(f"Found deployment: {subject_str} of type {object_str}")
+                    break
     
-    
-    def decode_solution(self, x: np.ndarray) -> Dict:
-        """Decode solution vector to configuration with caching"""
-        # Convert numpy array to tuple for hashing
-        x_tuple = tuple(x)
+    # If no sensors found, try alternative approach
+    if not self.sensors:
+        logger.warning("No sensors found with keyword matching, trying namespace approach...")
         
-        return {
-            'sensor': self.sensors[int(x[0] * len(self.sensors)) % len(self.sensors)],
-            'data_rate': 10 + x[1] * 90,  # 10-100 Hz
-            'geo_lod': ['Micro', 'Meso', 'Macro'][int(x[2] * 3) % 3],
-            'cond_lod': ['Micro', 'Meso', 'Macro'][int(x[3] * 3) % 3],
-            'algorithm': self.algorithms[int(x[4] * len(self.algorithms)) % len(self.algorithms)],
-            'detection_threshold': 0.1 + x[5] * 0.8,  # 0.1-0.9
-            'storage': self.storage_systems[int(x[6] * len(self.storage_systems)) % len(self.storage_systems)],
-            'communication': self.comm_systems[int(x[7] * len(self.comm_systems)) % len(self.comm_systems)],
-            'deployment': self.deployments[int(x[8] * len(self.deployments)) % len(self.deployments)],
-            'crew_size': int(1 + x[9] * 9),  # 1-10
-            'inspection_cycle': int(1 + x[10] * 364)  # 1-365 days
-        }
+        # Try to find anything that looks like a sensor instance
+        for s, p, o in self.g:
+            subject_str = str(s)
+            if str(p).endswith('type') and 'example.org' in subject_str:
+                # Check if the subject name contains sensor-related keywords
+                subject_name = subject_str.split('/')[-1].split('#')[-1]
+                sensor_name_keywords = ['LiDAR', 'Camera', 'Sensor', 'Scanner', 'TLS', 'FOS', 'IoT']
+                
+                for keyword in sensor_name_keywords:
+                    if keyword in subject_name:
+                        if subject_str not in self.sensors:
+                            self.sensors.append(subject_str)
+                            logger.info(f"Found sensor by name pattern: {subject_str}")
+                        break
+    
+    # Remove duplicates
+    self.sensors = list(set(self.sensors))
+    self.algorithms = list(set(self.algorithms))
+    self.storage_systems = list(set(self.storage_systems))
+    self.comm_systems = list(set(self.comm_systems))
+    self.deployments = list(set(self.deployments))
+    
+    # Log results
+    logger.info(f"Cached components: {len(self.sensors)} sensors, "
+               f"{len(self.algorithms)} algorithms, {len(self.storage_systems)} storage, "
+               f"{len(self.comm_systems)} communication, {len(self.deployments)} deployment")
+    
+    # Additional debug info if no sensors found
+    if not self.sensors:
+        logger.error("ERROR: No sensors found! Debugging info:")
+        logger.error("Total triples in graph: %d", len(self.g))
+        logger.error("Looking for sensor types: %s", sensor_type_keywords)
+        
+        # Print some example triples
+        logger.error("Example triples in graph:")
+        count = 0
+        for s, p, o in self.g:
+            if count < 10:
+                logger.error(f"  {s} -- {p} --> {o}")
+                count += 1
+        
+        # Provide fallback sensors to prevent crash
+        logger.warning("Adding fallback sensors to prevent crash...")
+        self.sensors = [
+            "http://example.org/rmtwin#MMS_LiDAR_Riegl_VUX1HA",
+            "http://example.org/rmtwin#UAV_Camera_DJI_Mavic3Pro",
+            "http://example.org/rmtwin#IoT_Wireless_Network"
+        ]
+    
+    # Ensure we have at least one of each component type
+    if not self.algorithms:
+        self.algorithms = ["http://example.org/rmtwin#DL_YOLOv5s_Enhanced"]
+    if not self.storage_systems:
+        self.storage_systems = ["http://example.org/rmtwin#Storage_Cloud_AWS_S3"]
+    if not self.comm_systems:
+        self.comm_systems = ["http://example.org/rmtwin#Communication_5G_Network"]
+    if not self.deployments:
+        self.deployments = ["http://example.org/rmtwin#Deployment_Cloud_Computing"]
+
+    
+def decode_solution(self, x: np.ndarray) -> Dict:
+    """Decode solution vector to configuration - FIXED VERSION"""
+    
+    # Ensure array is 1D
+    if isinstance(x, np.ndarray):
+        x = x.flatten()
+    
+    # Validate we have components
+    if not self.sensors:
+        logger.error("No sensors available for selection!")
+        raise ValueError("No sensors found in ontology! Check _cache_components method.")
+    
+    if not self.algorithms:
+        logger.error("No algorithms available for selection!")
+        raise ValueError("No algorithms found in ontology!")
+    
+    # Safe selection with bounds checking
+    def safe_select(array, value, name):
+        if not array:
+            logger.warning(f"No {name} available, using default")
+            return f"default_{name}"
+        idx = int(value * len(array)) % max(len(array), 1)
+        idx = min(idx, len(array) - 1)  # Ensure within bounds
+        return array[idx]
+    
+    config = {
+        'sensor': safe_select(self.sensors, x[0], 'sensor'),
+        'data_rate': 10 + x[1] * 90,  # 10-100 Hz
+        'geo_lod': ['Micro', 'Meso', 'Macro'][int(x[2] * 3) % 3],
+        'cond_lod': ['Micro', 'Meso', 'Macro'][int(x[3] * 3) % 3],
+        'algorithm': safe_select(self.algorithms, x[4], 'algorithm'),
+        'detection_threshold': 0.1 + x[5] * 0.8,  # 0.1-0.9
+        'storage': safe_select(self.storage_systems, x[6], 'storage'),
+        'communication': safe_select(self.comm_systems, x[7], 'communication'),
+        'deployment': safe_select(self.deployments, x[8], 'deployment'),
+        'crew_size': int(1 + x[9] * 9),  # 1-10
+        'inspection_cycle': int(1 + x[10] * 364)  # 1-365 days
+    }
+    
+    return config
+
 
 # ============================================================================
 # ENHANCED FITNESS EVALUATOR WITH PARALLEL PROCESSING
