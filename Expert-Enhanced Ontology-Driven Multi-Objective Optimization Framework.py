@@ -162,6 +162,13 @@ class OptimizationConfig:
     use_parallel: bool = True
     cache_size: int = 10000
     
+
+        # Baseline comparison (NEW)
+    run_baseline_comparison: bool = True
+    baseline_n_random_samples: int = 1000
+    baseline_grid_resolution: int = 5
+    baseline_weight_combinations: int = 50
+    
     # Visualization
     output_dir: str = './results'
     figure_format: List[str] = field(default_factory=lambda: ['png', 'pdf', 'svg'])
@@ -1511,6 +1518,37 @@ def main():
         logger.info("\nStep 7: Generating analysis report...")
         results_manager.generate_report(df)
         
+
+        # Step 8: Run baseline comparison (NEW)
+        logger.info("\nStep 8: Running baseline comparison...")
+        try:
+            from baseline_comparison import run_baseline_comparison
+            
+            baseline_results = run_baseline_comparison(
+                ontology_graph=ontology_graph,
+                pareto_csv_path=Path(config.output_dir) / 'pareto_solutions_6d.csv'
+            )
+            
+            if baseline_results:
+                logger.info("Baseline comparison completed successfully")
+                logger.info("Check ./results/baseline/ for detailed comparison results")
+            
+        except ImportError:
+            logger.warning("baseline_comparison module not found, skipping baseline analysis")
+        except Exception as e:
+            logger.error(f"Error during baseline comparison: {e}")
+            logger.info("Main optimization completed successfully, but baseline comparison failed")
+        
+        # Final summary (修改以包含基线对比信息)
+        logger.info("\n" + "="*80)
+        logger.info("OPTIMIZATION AND ANALYSIS COMPLETE")
+        logger.info(f"Total solutions found: {len(df)}")
+        logger.info(f"Feasible solutions: {df['is_feasible'].sum() if 'is_feasible' in df else len(df)}")
+        logger.info(f"Results saved to: {config.output_dir}")
+        if baseline_results:
+            logger.info(f"Baseline comparison saved to: {config.output_dir}/baseline/")
+        logger.info("="*80)
+
         # Summary
         logger.info("\n" + "="*80)
         logger.info("OPTIMIZATION COMPLETE")

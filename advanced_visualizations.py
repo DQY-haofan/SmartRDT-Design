@@ -460,7 +460,6 @@ def create_objective_correlation_heatmap(df, output_dir='./results'):
     fig.savefig(f'{output_dir}/png/objective_correlation_6d.png', dpi=300, bbox_inches='tight')
     fig.savefig(f'{output_dir}/pdf/objective_correlation_6d.pdf', bbox_inches='tight')
     plt.close(fig)
-
     
 def create_pareto_front_2d_projections(df, output_dir='./results'):
     """Create 2D projections of 6D Pareto front"""
