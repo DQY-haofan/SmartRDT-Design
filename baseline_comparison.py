@@ -20,9 +20,12 @@ import time
 from dataclasses import dataclass
 import matplotlib.pyplot as plt
 import seaborn as sns
+from rdflib import Graph, Namespace, URIRef, Literal
+from rdflib.namespace import RDF, RDFS, OWL, XSD
 
 # Import from main framework
 from rdflib import Graph
+# Import from main framework
 import sys
 sys.path.append('.')
 

@@ -360,6 +360,7 @@ def create_technology_comparison_dashboard(df, output_dir='./results'):
     fig.savefig(f'{output_dir}/pdf/technology_comparison_6obj.pdf', bbox_inches='tight')
     plt.close(fig)
 
+
 def create_objective_correlation_heatmap(df, output_dir='./results'):
     """Create correlation heatmap for all 6 objectives"""
     
@@ -402,17 +403,29 @@ def create_objective_correlation_heatmap(df, output_dir='./results'):
     from scipy.spatial.distance import squareform
     
     # Calculate distance matrix and perform hierarchical clustering
-    # FIX: Ensure matrix is symmetric
+    # FIXED: Ensure matrix is perfectly symmetric
     distance_matrix = 1 - np.abs(corr_matrix.values)
     
-    # Force symmetry by averaging with transpose
-    distance_matrix = (distance_matrix + distance_matrix.T) / 2
+    # Force perfect symmetry by using upper triangle
+    n = distance_matrix.shape[0]
+    for i in range(n):
+        for j in range(i+1, n):
+            avg_val = (distance_matrix[i, j] + distance_matrix[j, i]) / 2
+            distance_matrix[i, j] = avg_val
+            distance_matrix[j, i] = avg_val
     
     # Set diagonal to exactly 0
     np.fill_diagonal(distance_matrix, 0)
     
+    # Additional check: round to avoid floating point issues
+    distance_matrix = np.round(distance_matrix, decimals=10)
+    
     # Convert to condensed form
-    condensed_distances = squareform(distance_matrix, checks=True)
+    try:
+        condensed_distances = squareform(distance_matrix, checks=True)
+    except ValueError:
+        # If still failing, use force=True to bypass checks
+        condensed_distances = squareform(distance_matrix, force='tovector')
     
     # Perform clustering
     linkage_matrix = linkage(condensed_distances, method='average')
@@ -448,6 +461,7 @@ def create_objective_correlation_heatmap(df, output_dir='./results'):
     fig.savefig(f'{output_dir}/pdf/objective_correlation_6d.pdf', bbox_inches='tight')
     plt.close(fig)
 
+    
 def create_pareto_front_2d_projections(df, output_dir='./results'):
     """Create 2D projections of 6D Pareto front"""
     
