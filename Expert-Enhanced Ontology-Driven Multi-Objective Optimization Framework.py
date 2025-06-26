@@ -577,8 +577,8 @@ class ParallelFitnessEvaluator:
         }
         
     
-    def _query_property(self, subject: str, predicate: str) -> Optional[float]:
-        """Cached SPARQL query for properties"""
+    def _query_property(self, subject: str, predicate: str) -> Optional[Union[float, str]]:
+        """Cached SPARQL query for properties - Fixed to handle different data types"""
         query_key = f"{subject}_{predicate}"
         
         if query_key in self._query_cache:
@@ -593,12 +593,19 @@ class ParallelFitnessEvaluator:
         result = None
         for row in self.g.query(query):
             if row.value:
-                result = float(row.value)
+                # Try to convert to float if it looks like a number
+                value_str = str(row.value)
+                try:
+                    # Check if it's a numeric value
+                    result = float(value_str)
+                except ValueError:
+                    # If not numeric, return as string
+                    result = value_str
                 break
                 
         self._query_cache[query_key] = result
         return result
-    
+        
     def evaluate_batch(self, X: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Evaluate a batch of solutions in parallel"""
         n_solutions = len(X)
@@ -682,10 +689,15 @@ class ParallelFitnessEvaluator:
             total_cost += annual_sensor_cost * self.config.planning_horizon_years
         
         # Crew costs with skill multiplier
+        # Crew costs with skill multiplier
         skill_level = self._query_property(config['sensor'], str(RDTCO.hasOperatorSkillLevel))
-        skill_multiplier = {'Basic': 1.0, 'Intermediate': 1.5, 'Expert': 2.0}.get(
-            skill_level, 1.0) if skill_level else 1.0
-        
+        if skill_level:
+            # skill_level is now a string, not a float
+            skill_multiplier = {'Basic': 1.0, 'Intermediate': 1.5, 'Expert': 2.0}.get(
+                str(skill_level), 1.0)
+        else:
+            skill_multiplier = 1.0
+
         crew_daily_cost = config['crew_size'] * 1000 * skill_multiplier  # $1000/person/day base
         crew_annual_cost = crew_daily_cost * days_per_inspection * inspections_per_year
         total_cost += crew_annual_cost * self.config.planning_horizon_years
