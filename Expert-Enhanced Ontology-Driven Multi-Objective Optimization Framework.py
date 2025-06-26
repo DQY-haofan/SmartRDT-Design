@@ -833,60 +833,60 @@ class ResultsManager:
         return df
 
     def _save_enhanced_summary(self, df: pd.DataFrame):
-    """保存增强版摘要统计"""
-    summary = {
-        'timestamp': datetime.now().isoformat(),
-        'configuration': self.config.to_dict(),
-        'results': {
-            'total_solutions': int(len(df)),
-            'feasible_solutions': int(df['is_feasible'].sum()),
-            'objective_statistics': {
-                'cost': {
-                    'min': float(df['f1_total_cost_USD'].min()),
-                    'max': float(df['f1_total_cost_USD'].max()),
-                    'mean': float(df['f1_total_cost_USD'].mean()),
-                    'std': float(df['f1_total_cost_USD'].std()),
-                    'min_annual': float(df['annual_cost_USD'].min()),
-                    'max_annual': float(df['annual_cost_USD'].max())
+        """保存增强版摘要统计"""
+        summary = {
+            'timestamp': datetime.now().isoformat(),
+            'configuration': self.config.to_dict(),
+            'results': {
+                'total_solutions': int(len(df)),
+                'feasible_solutions': int(df['is_feasible'].sum()),
+                'objective_statistics': {
+                    'cost': {
+                        'min': float(df['f1_total_cost_USD'].min()),
+                        'max': float(df['f1_total_cost_USD'].max()),
+                        'mean': float(df['f1_total_cost_USD'].mean()),
+                        'std': float(df['f1_total_cost_USD'].std()),
+                        'min_annual': float(df['annual_cost_USD'].min()),
+                        'max_annual': float(df['annual_cost_USD'].max())
+                    },
+                    'recall': {
+                        'min': float(df['detection_recall'].min()),
+                        'max': float(df['detection_recall'].max()),
+                        'mean': float(df['detection_recall'].mean()),
+                        'std': float(df['detection_recall'].std())
+                    },
+                    'latency': {
+                        'min': float(df['f3_latency_seconds'].min()),
+                        'max': float(df['f3_latency_seconds'].max()),
+                        'mean': float(df['f3_latency_seconds'].mean()),
+                        'below_1s': int((df['f3_latency_seconds'] < 1.0).sum())
+                    },
+                    'carbon_emissions': {
+                        'min_kgCO2e': float(df['f5_carbon_emissions_kgCO2e_year'].min()),
+                        'max_kgCO2e': float(df['f5_carbon_emissions_kgCO2e_year'].max()),
+                        'mean_kgCO2e': float(df['f5_carbon_emissions_kgCO2e_year'].mean()),
+                        'min_tons': float(df['carbon_footprint_tons_CO2_year'].min()),
+                        'max_tons': float(df['carbon_footprint_tons_CO2_year'].max()),
+                        'low_carbon_solutions': int((df['carbon_footprint_tons_CO2_year'] < 10).sum())
+                    },
+                    'reliability': {
+                        'min_mtbf_hours': float(df['system_MTBF_hours'].replace([np.inf], np.nan).min()),
+                        'max_mtbf_hours': float(df['system_MTBF_hours'].replace([np.inf], np.nan).max()),
+                        'mean_mtbf_years': float(df['system_MTBF_years'].replace([np.inf], np.nan).mean()),
+                        'high_reliability_solutions': int((df['system_MTBF_years'] > 3).sum())
+                    }
                 },
-                'recall': {
-                    'min': float(df['detection_recall'].min()),
-                    'max': float(df['detection_recall'].max()),
-                    'mean': float(df['detection_recall'].mean()),
-                    'std': float(df['detection_recall'].std())
-                },
-                'latency': {
-                    'min': float(df['f3_latency_seconds'].min()),
-                    'max': float(df['f3_latency_seconds'].max()),
-                    'mean': float(df['f3_latency_seconds'].mean()),
-                    'below_1s': int((df['f3_latency_seconds'] < 1.0).sum())
-                },
-                'carbon_emissions': {
-                    'min_kgCO2e': float(df['f5_carbon_emissions_kgCO2e_year'].min()),
-                    'max_kgCO2e': float(df['f5_carbon_emissions_kgCO2e_year'].max()),
-                    'mean_kgCO2e': float(df['f5_carbon_emissions_kgCO2e_year'].mean()),
-                    'min_tons': float(df['carbon_footprint_tons_CO2_year'].min()),
-                    'max_tons': float(df['carbon_footprint_tons_CO2_year'].max()),
-                    'low_carbon_solutions': int((df['carbon_footprint_tons_CO2_year'] < 10).sum())
-                },
-                'reliability': {
-                    'min_mtbf_hours': float(df['system_MTBF_hours'].replace([np.inf], np.nan).min()),
-                    'max_mtbf_hours': float(df['system_MTBF_hours'].replace([np.inf], np.nan).max()),
-                    'mean_mtbf_years': float(df['system_MTBF_years'].replace([np.inf], np.nan).mean()),
-                    'high_reliability_solutions': int((df['system_MTBF_years'] > 3).sum())
+                'technology_distribution': {
+                    'sensors': df['sensor'].value_counts().to_dict(),
+                    'algorithms': df['algorithm'].value_counts().to_dict(),
+                    'deployments': df['deployment'].value_counts().to_dict()
                 }
-            },
-            'technology_distribution': {
-                'sensors': df['sensor'].value_counts().to_dict(),
-                'algorithms': df['algorithm'].value_counts().to_dict(),
-                'deployments': df['deployment'].value_counts().to_dict()
             }
         }
-    }
-    
-    # 保存JSON摘要
-    with open(self.output_dir / 'optimization_summary_enhanced.json', 'w') as f:
-        json.dump(summary, f, indent=2, cls=NumpyEncoder)
+        
+        # 保存JSON摘要
+        with open(self.output_dir / 'optimization_summary_enhanced.json', 'w') as f:
+            json.dump(summary, f, indent=2, cls=NumpyEncoder)
 
     def _generate_enhanced_report(self, df: pd.DataFrame):
         """生成增强版分析报告"""
