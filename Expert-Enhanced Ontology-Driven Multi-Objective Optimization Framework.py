@@ -156,8 +156,8 @@ class OptimizationConfig:
     min_mtbf_hours: float = 5_000
     
     # Algorithm parameters
-    population_size: int = 150
-    n_generations: int = 200
+    population_size: int = 200
+    n_generations: int = 20
     n_objectives: int = 6
     crossover_prob: float = 0.9
     crossover_eta: float = 15
@@ -832,7 +832,167 @@ class ResultsManager:
         
         return df
 
+    def _save_enhanced_summary(self, df: pd.DataFrame):
+    """保存增强版摘要统计"""
+    summary = {
+        'timestamp': datetime.now().isoformat(),
+        'configuration': self.config.to_dict(),
+        'results': {
+            'total_solutions': int(len(df)),
+            'feasible_solutions': int(df['is_feasible'].sum()),
+            'objective_statistics': {
+                'cost': {
+                    'min': float(df['f1_total_cost_USD'].min()),
+                    'max': float(df['f1_total_cost_USD'].max()),
+                    'mean': float(df['f1_total_cost_USD'].mean()),
+                    'std': float(df['f1_total_cost_USD'].std()),
+                    'min_annual': float(df['annual_cost_USD'].min()),
+                    'max_annual': float(df['annual_cost_USD'].max())
+                },
+                'recall': {
+                    'min': float(df['detection_recall'].min()),
+                    'max': float(df['detection_recall'].max()),
+                    'mean': float(df['detection_recall'].mean()),
+                    'std': float(df['detection_recall'].std())
+                },
+                'latency': {
+                    'min': float(df['f3_latency_seconds'].min()),
+                    'max': float(df['f3_latency_seconds'].max()),
+                    'mean': float(df['f3_latency_seconds'].mean()),
+                    'below_1s': int((df['f3_latency_seconds'] < 1.0).sum())
+                },
+                'carbon_emissions': {
+                    'min_kgCO2e': float(df['f5_carbon_emissions_kgCO2e_year'].min()),
+                    'max_kgCO2e': float(df['f5_carbon_emissions_kgCO2e_year'].max()),
+                    'mean_kgCO2e': float(df['f5_carbon_emissions_kgCO2e_year'].mean()),
+                    'min_tons': float(df['carbon_footprint_tons_CO2_year'].min()),
+                    'max_tons': float(df['carbon_footprint_tons_CO2_year'].max()),
+                    'low_carbon_solutions': int((df['carbon_footprint_tons_CO2_year'] < 10).sum())
+                },
+                'reliability': {
+                    'min_mtbf_hours': float(df['system_MTBF_hours'].replace([np.inf], np.nan).min()),
+                    'max_mtbf_hours': float(df['system_MTBF_hours'].replace([np.inf], np.nan).max()),
+                    'mean_mtbf_years': float(df['system_MTBF_years'].replace([np.inf], np.nan).mean()),
+                    'high_reliability_solutions': int((df['system_MTBF_years'] > 3).sum())
+                }
+            },
+            'technology_distribution': {
+                'sensors': df['sensor'].value_counts().to_dict(),
+                'algorithms': df['algorithm'].value_counts().to_dict(),
+                'deployments': df['deployment'].value_counts().to_dict()
+            }
+        }
+    }
     
+    # 保存JSON摘要
+    with open(self.output_dir / 'optimization_summary_enhanced.json', 'w') as f:
+        json.dump(summary, f, indent=2, cls=NumpyEncoder)
+
+    def _generate_enhanced_report(self, df: pd.DataFrame):
+        """生成增强版分析报告"""
+        report = f"""
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║              ENHANCED RMTWIN OPTIMIZATION REPORT V2.0                          ║
+    ║                   With Expert-Recommended Improvements                         ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+    Total Pareto-optimal solutions: {len(df)}
+
+    1. COST ANALYSIS (Enhanced with Annualized Capital Cost)
+    ══════════════════════════════════════════════════════════════════════════════
+    - Total Cost Range: ${df['f1_total_cost_USD'].min():,.0f} - ${df['f1_total_cost_USD'].max():,.0f}
+    - Annual Cost Range: ${df['annual_cost_USD'].min():,.0f} - ${df['annual_cost_USD'].max():,.0f}
+    - Cost per km/year: ${df['cost_per_km_year'].min():.2f} - ${df['cost_per_km_year'].max():.2f}
+
+    Most Cost-Effective Configuration:
+    {self._format_solution(df.loc[df['f1_total_cost_USD'].idxmin()])}
+
+    2. PERFORMANCE ANALYSIS (With Class Imbalance Considerations)
+    ══════════════════════════════════════════════════════════════════════════════
+    - Detection Recall Range: {df['detection_recall'].min():.3f} - {df['detection_recall'].max():.3f}
+    - Solutions meeting 70% threshold: {(df['detection_recall'] >= 0.70).sum()} ({(df['detection_recall'] >= 0.70).sum()/len(df)*100:.1f}%)
+    - Average Recall by Algorithm Type:
+    {self._get_algorithm_performance_summary(df)}
+
+    3. LATENCY ANALYSIS (Scenario-Aware)
+    ══════════════════════════════════════════════════════════════════════════════
+    - Latency Range: {df['f3_latency_seconds'].min():.2f} - {df['f3_latency_seconds'].max():.2f} seconds
+    - Real-time capable (<1s): {(df['f3_latency_seconds'] < 1.0).sum()} solutions
+    - Meeting constraint (<180s): {(df['f3_latency_seconds'] <= 180).sum()} solutions
+
+    4. ENVIRONMENTAL IMPACT (Carbon Footprint)
+    ══════════════════════════════════════════════════════════════════════════════
+    - Carbon Emissions Range: {df['f5_carbon_emissions_kgCO2e_year'].min():.0f} - {df['f5_carbon_emissions_kgCO2e_year'].max():.0f} kgCO₂e/year
+    - Equivalent to: {df['carbon_footprint_tons_CO2_year'].min():.1f} - {df['carbon_footprint_tons_CO2_year'].max():.1f} tons/year
+    - Low-carbon solutions (<10 tons/year): {(df['carbon_footprint_tons_CO2_year'] < 10).sum()}
+
+    Most Sustainable Configuration:
+    {self._format_solution(df.loc[df['f5_carbon_emissions_kgCO2e_year'].idxmin()])}
+
+    5. RELIABILITY ANALYSIS (With Redundancy Benefits)
+    ══════════════════════════════════════════════════════════════════════════════
+    - MTBF Range: {df['system_MTBF_hours'].replace([np.inf], np.nan).min():.0f} - {df['system_MTBF_hours'].replace([np.inf], np.nan).max():.0f} hours
+    - In years: {df['system_MTBF_years'].replace([np.inf], np.nan).min():.1f} - {df['system_MTBF_years'].replace([np.inf], np.nan).max():.1f} years
+    - High reliability (>3 years): {(df['system_MTBF_years'] > 3).sum()} solutions
+
+    6. KEY INSIGHTS FROM ENHANCED MODELING
+    ══════════════════════════════════════════════════════════════════════════════
+    {self._generate_insights(df)}
+
+    ══════════════════════════════════════════════════════════════════════════════
+    """
+        
+        # 保存报告
+        with open(self.output_dir / 'optimization_report_enhanced.txt', 'w', encoding='utf-8') as f:
+            f.write(report)
+        
+        logger.info("Generated enhanced optimization report")
+
+    def _format_solution(self, sol) -> str:
+        """格式化单个解决方案的描述"""
+        return f"""  • Sensor: {sol['sensor']}
+    • Algorithm: {sol['algorithm']}
+    • Cost: ${sol['f1_total_cost_USD']:,.0f} (${sol['annual_cost_USD']:,.0f}/year)
+    • Recall: {sol['detection_recall']:.3f}
+    • Carbon: {sol['carbon_footprint_tons_CO2_year']:.1f} tons/year
+    • MTBF: {sol['system_MTBF_years']:.1f} years"""
+
+    def _get_algorithm_performance_summary(self, df) -> str:
+        """获取算法性能摘要"""
+        algo_perf = df.groupby(df['algorithm'].str.extract(r'(DL|ML|Traditional|PC)')[0])['detection_recall'].mean()
+        summary = ""
+        for algo_type, recall in algo_perf.items():
+            if pd.notna(algo_type):
+                summary += f"  • {algo_type}: {recall:.3f}\n"
+        return summary.strip()
+
+    def _generate_insights(self, df) -> str:
+        """生成关键洞察"""
+        insights = []
+        
+        # 成本-性能权衡
+        cost_perf_corr = df['f1_total_cost_USD'].corr(df['detection_recall'])
+        insights.append(f"• Cost-Performance correlation: {cost_perf_corr:.2f} (higher cost {'does' if cost_perf_corr > 0.3 else 'does not'} guarantee better performance)")
+        
+        # 环境-可靠性关系
+        env_rel_corr = df['f5_carbon_emissions_kgCO2e_year'].corr(df['system_MTBF_hours'])
+        insights.append(f"• Carbon-Reliability trade-off: {env_rel_corr:.2f} (sustainability and reliability are {'positively' if env_rel_corr > 0 else 'negatively'} correlated)")
+        
+        # 最佳平衡解
+        normalized = df[['f1_total_cost_USD', 'f2_one_minus_recall', 'f3_latency_seconds', 
+                        'f5_carbon_emissions_kgCO2e_year', 'f6_system_reliability_inverse_MTBF']].copy()
+        for col in normalized.columns:
+            normalized[col] = (normalized[col] - normalized[col].min()) / (normalized[col].max() - normalized[col].min())
+        normalized['balance_score'] = normalized.sum(axis=1)
+        best_balanced_idx = normalized['balance_score'].idxmin()
+        
+        insights.append(f"• Best balanced solution: Solution #{df.loc[best_balanced_idx, 'solution_id']} "
+                    f"({df.loc[best_balanced_idx, 'sensor']} + {df.loc[best_balanced_idx, 'algorithm']})")
+        
+        return '\n'.join(insights)
+
+
     def _save_summary(self, df: pd.DataFrame):
         """Save optimization summary with proper JSON serialization"""
         # Convert all values to JSON-serializable types
