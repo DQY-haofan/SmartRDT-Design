@@ -364,7 +364,7 @@ class CachedSolutionMapper:
         self.g = ontology_graph
         self._cache_components()
         
-    @lru_cache(maxsize=1000)
+    
     def _cache_components(self):
         """Cache all available components from ontology"""
         # Cache sensors
@@ -400,7 +400,7 @@ class CachedSolutionMapper:
                    f"{len(self.algorithms)} algorithms, {len(self.storage_systems)} storage, "
                    f"{len(self.comm_systems)} communication, {len(self.deployments)} deployment")
     
-    @lru_cache(maxsize=10000)
+    
     def decode_solution(self, x: np.ndarray) -> Dict:
         """Decode solution vector to configuration with caching"""
         # Convert numpy array to tuple for hashing
@@ -445,7 +445,7 @@ class ParallelFitnessEvaluator:
             'reliability': {'min': 0.0, 'max': 0.001}  # 1/MTBF
         }
         
-    @lru_cache(maxsize=10000)
+    
     def _query_property(self, subject: str, predicate: str) -> Optional[float]:
         """Cached SPARQL query for properties"""
         query_key = f"{subject}_{predicate}"
