@@ -656,11 +656,7 @@ class IntegratedFitnessEvaluator:
             raw_objectives[i] = obj
             constraints[i] = const
             
-            # 记录评估时间
-            eval_time = time.time() - eval_start
-            if eval_time < 0.001:  # 太快说明有问题
-                logger.warning(f"Solution {i} evaluated too fast: {eval_time:.6f}s")
-        
+
         # 批量评估统计
         batch_time = time.time() - batch_start
         self._evaluation_count += n_solutions
