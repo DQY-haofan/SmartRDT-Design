@@ -402,8 +402,19 @@ def create_objective_correlation_heatmap(df, output_dir='./results'):
     from scipy.spatial.distance import squareform
     
     # Calculate distance matrix and perform hierarchical clustering
-    distance_matrix = 1 - np.abs(corr_matrix)
-    condensed_distances = squareform(distance_matrix)
+    # FIX: Ensure matrix is symmetric
+    distance_matrix = 1 - np.abs(corr_matrix.values)
+    
+    # Force symmetry by averaging with transpose
+    distance_matrix = (distance_matrix + distance_matrix.T) / 2
+    
+    # Set diagonal to exactly 0
+    np.fill_diagonal(distance_matrix, 0)
+    
+    # Convert to condensed form
+    condensed_distances = squareform(distance_matrix, checks=True)
+    
+    # Perform clustering
     linkage_matrix = linkage(condensed_distances, method='average')
     
     # Create dendrogram
