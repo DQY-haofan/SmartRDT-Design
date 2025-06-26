@@ -670,7 +670,7 @@ class EnhancedRMTwinProblem(Problem):
     def __init__(self, ontology_graph: Graph, config: OptimizationConfig):
         self.g = ontology_graph
         self.config = config
-        self.evaluator = ParallelFitnessEvaluator(ontology_graph, config)
+        self.evaluator = IntegratedFitnessEvaluator(ontology_graph, config)
         
         # Variable bounds
         xl = np.zeros(11)
