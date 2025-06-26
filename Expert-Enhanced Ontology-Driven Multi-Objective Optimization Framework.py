@@ -795,28 +795,46 @@ class ParallelFitnessEvaluator:
         
         # Operational costs
         sensor_op_cost = self._get_query_result(query_results, config['sensor'], 
-                                              str(RDTCO.hasOperationalCostUSDPerDay), 0)
+                                            str(RDTCO.hasOperationalCostUSDPerDay), 0)
         if sensor_op_cost:
             coverage_efficiency = self._get_query_result(query_results, config['sensor'],
                                                         str(RDTCO.hasCoverageEfficiencyKmPerDay), 80)
             inspections_per_year = 365 / config['inspection_cycle']
-            days_per_inspection = self.config.road_network_length_km / coverage_efficiency
-            annual_sensor_cost = sensor_op_cost * days_per_inspection * inspections_per_year
+            
+            # FIX: Handle zero coverage efficiency
+            if coverage_efficiency > 0:
+                days_per_inspection = self.config.road_network_length_km / coverage_efficiency
+                annual_sensor_cost = sensor_op_cost * days_per_inspection * inspections_per_year
+            else:
+                # For stationary sensors, use fixed operational cost
+                annual_sensor_cost = sensor_op_cost * 365  # Continuous operation
+                
             total_cost += annual_sensor_cost * self.config.planning_horizon_years
         
         # Crew costs
         skill_level = self._get_query_result(query_results, config['sensor'], 
-                                           str(RDTCO.hasOperatorSkillLevel), 'Basic')
+                                        str(RDTCO.hasOperatorSkillLevel), 'Basic')
         skill_multiplier = {'Basic': 1.0, 'Intermediate': 1.5, 'Expert': 2.0}.get(
             str(skill_level), 1.0)
         
-        crew_daily_cost = config['crew_size'] * 1000 * skill_multiplier
-        crew_annual_cost = crew_daily_cost * days_per_inspection * inspections_per_year
+        # FIX: Calculate crew costs correctly for stationary sensors
+        coverage_efficiency = self._get_query_result(query_results, config['sensor'],
+                                                    str(RDTCO.hasCoverageEfficiencyKmPerDay), 80)
+        
+        if coverage_efficiency > 0:
+            days_per_inspection = self.config.road_network_length_km / coverage_efficiency
+            crew_daily_cost = config['crew_size'] * 1000 * skill_multiplier
+            crew_annual_cost = crew_daily_cost * days_per_inspection * inspections_per_year
+        else:
+            # Stationary sensors need minimal crew time (only for maintenance)
+            crew_daily_cost = config['crew_size'] * 1000 * skill_multiplier
+            crew_annual_cost = crew_daily_cost * 10  # Assume 10 days/year for maintenance
+            
         total_cost += crew_annual_cost * self.config.planning_horizon_years
         
         # Data annotation costs
         annotation_cost = self._get_query_result(query_results, config['algorithm'],
-                                               str(RDTCO.hasDataAnnotationCostUSD), 0)
+                                            str(RDTCO.hasDataAnnotationCostUSD), 0)
         if annotation_cost:
             total_annotation = annotation_cost * 10000
             total_cost += total_annotation
@@ -829,7 +847,8 @@ class ParallelFitnessEvaluator:
             total_cost += retrainings * 5000
         
         return total_cost
-    
+   
+   
     def _calculate_detection_performance_batch(self, config: Dict, query_results: Dict) -> float:
         """Calculate 1 - recall using batch query results"""
         base_recall = self._get_query_result(query_results, config['algorithm'], 
