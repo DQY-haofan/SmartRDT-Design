@@ -143,12 +143,9 @@ class OptimizationConfig:
     infrastructure_csv: str = 'infrastructure_data.txt'
     cost_benefit_csv: str = 'cost_benefit_data.txt'
     
-    # Network parameters
-    road_network_length_km: float = 100.0
-    planning_horizon_years: int = 10
-    
-    # Constraints
-    budget_cap_usd: float = 1_000_000
+    road_network_length_km: float = None
+    planning_horizon_years: int = None
+    budget_cap_usd: float = None
     min_recall_threshold: float = 0.80
     max_latency_seconds: float = 60.0
     max_disruption_hours: float = 100.0
@@ -202,6 +199,10 @@ class OptimizationConfig:
         with open(filepath, 'w') as f:
             json.dump(self.to_dict(), f, indent=2, cls=NumpyEncoder)
     
+    def __post_init__(self):
+        # 强制加载config.json
+        self.load_from_json('config.json')
+
     @classmethod
     def load(cls, filepath: str) -> 'OptimizationConfig':
         """Load configuration from JSON"""
