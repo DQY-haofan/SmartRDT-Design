@@ -199,9 +199,6 @@ class OptimizationConfig:
         with open(filepath, 'w') as f:
             json.dump(self.to_dict(), f, indent=2, cls=NumpyEncoder)
     
-    def __post_init__(self):
-        # 强制加载config.json
-        self.load_from_json('config.json')
 
     @classmethod
     def load(cls, filepath: str) -> 'OptimizationConfig':
@@ -617,12 +614,16 @@ class IntegratedFitnessEvaluator:
         self.config = config
         self.mapper = CachedSolutionMapper(ontology_graph)
         
-        # 创建高级配置
+        # 创建高级配置 - 确保所有参数都设置
         self.advanced_config = AdvancedEvaluationConfig(
             road_network_length_km=config.road_network_length_km,
             planning_horizon_years=config.planning_horizon_years,
             budget_cap_usd=config.budget_cap_usd,
-            daily_wage_per_person=1500  # 从config.json获取
+            daily_wage_per_person=1500,
+            fos_sensor_spacing_km=0.1,  # 确保设置
+            depreciation_rate=0.1,      # 确保设置
+            scenario_type='urban',      # 确保设置
+            carbon_intensity_factor=0.417  # 确保设置
         )
         
         # 创建增强版评估器
@@ -631,42 +632,69 @@ class IntegratedFitnessEvaluator:
             config=self.advanced_config
         )
         
-        # 动态归一化器
-        self.normalizer = DynamicNormalizer()
+        # 移除动态归一化器 - 不再需要
+        # self.normalizer = DynamicNormalizer()
         
         # 统计信息
-        self._cache_hits = 0
-        self._cache_misses = 0
+        self._evaluation_count = 0
+        self._total_eval_time = 0
         
     def evaluate_batch(self, X: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """评估批量解决方案"""
+        """评估批量解决方案 - 返回原始目标值"""
+        import time
+        batch_start = time.time()
+        
         n_solutions = len(X)
         raw_objectives = np.zeros((n_solutions, 6))
         constraints = np.zeros((n_solutions, 3))
         
         # 评估每个解
         for i, x in enumerate(X):
+            eval_start = time.time()
             decoded = self.mapper.decode_solution(x)
             obj, const = self.evaluator_v2.evaluate_solution(x, decoded)
             raw_objectives[i] = obj
             constraints[i] = const
+            
+            # 记录评估时间
+            eval_time = time.time() - eval_start
+            if eval_time < 0.001:  # 太快说明有问题
+                logger.warning(f"Solution {i} evaluated too fast: {eval_time:.6f}s")
         
-        # 应用动态归一化（专家建议的关键改进）
-        normalized_objectives = self.normalizer.normalize_population(raw_objectives)
+        # 批量评估统计
+        batch_time = time.time() - batch_start
+        self._evaluation_count += n_solutions
+        self._total_eval_time += batch_time
         
-        return normalized_objectives, constraints
+        # 每1000次评估输出一次统计
+        if self._evaluation_count % 1000 == 0:
+            avg_time = self._total_eval_time / self._evaluation_count
+            logger.info(f"Average evaluation time: {avg_time:.4f}s per solution")
+            
+            # 输出目标值范围用于调试
+            logger.info("Current objective ranges:")
+            logger.info(f"  Cost: ${raw_objectives[:, 0].min():.0f} - ${raw_objectives[:, 0].max():.0f}")
+            logger.info(f"  1-Recall: {raw_objectives[:, 1].min():.3f} - {raw_objectives[:, 1].max():.3f}")
+            logger.info(f"  Latency: {raw_objectives[:, 2].min():.1f} - {raw_objectives[:, 2].max():.1f}s")
+            logger.info(f"  Disruption: {raw_objectives[:, 3].min():.1f} - {raw_objectives[:, 3].max():.1f}h")
+            logger.info(f"  Carbon: {raw_objectives[:, 4].min():.0f} - {raw_objectives[:, 4].max():.0f} kgCO2e")
+            logger.info(f"  1/MTBF: {raw_objectives[:, 5].min():.8f} - {raw_objectives[:, 5].max():.8f}")
+        
+        # 关键修改：直接返回原始值，不进行归一化！
+        # NSGA-II可以处理不同尺度的目标
+        return raw_objectives, constraints
     
     def _evaluate_single(self, x: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """评估单个解（用于结果保存）"""
         decoded = self.mapper.decode_solution(x)
         return self.evaluator_v2.evaluate_solution(x, decoded)
-    
+
 # ============================================================================
 # ENHANCED OPTIMIZATION PROBLEM
 # ============================================================================
 
 class EnhancedRMTwinProblem(Problem):
-    """Multi-objective optimization problem with 6 objectives"""
+    """Multi-objective optimization problem with 6 objectives - 修复版"""
     
     def __init__(self, ontology_graph: Graph, config: OptimizationConfig):
         self.g = ontology_graph
@@ -688,10 +716,24 @@ class EnhancedRMTwinProblem(Problem):
         logger.info(f"Initialized optimization problem with {self.n_obj} objectives")
         
     def _evaluate(self, X, out, *args, **kwargs):
-        """评估种群 - 使用增强版评估器"""
+        """评估种群 - 使用原始目标值"""
+        # 直接使用评估器，返回原始值
         objectives, constraints = self.evaluator.evaluate_batch(X)
+        
+        # 关键：直接使用原始目标值，不进行归一化
         out["F"] = objectives
         out["G"] = constraints
+        
+        # 可选：输出当前种群的统计信息
+        if hasattr(self, '_eval_counter'):
+            self._eval_counter += 1
+        else:
+            self._eval_counter = 1
+            
+        if self._eval_counter % 10 == 0:  # 每10代输出一次
+            logger.debug(f"Generation ~{self._eval_counter}: "
+                        f"Best cost=${objectives[:, 0].min():.0f}, "
+                        f"Best recall={1-objectives[:, 1].min():.3f}")
 
 # ============================================================================
 # RESULTS MANAGER (FIXED JSON SERIALIZATION)
@@ -1322,7 +1364,7 @@ def main():
         problem.evaluator = IntegratedFitnessEvaluator(ontology_graph, config)
         
         # Step 3: Configure algorithm
-        logger.info("\nStep 3: Configuring NSGA-II algorithm...")
+        # 对于原始目标值，可能需要调整交叉和变异参数
         algorithm = NSGA2(
             pop_size=config.population_size,
             sampling=FloatRandomSampling(),
@@ -1330,6 +1372,11 @@ def main():
             mutation=PM(eta=config.mutation_eta, prob=1.0/problem.n_var),
             eliminate_duplicates=True
         )
+
+        # 添加：设置epsilon用于处理不同尺度的目标
+        # 这有助于NSGA-II更好地处理原始目标值
+        from pymoo.util.misc import set_if_none
+        algorithm.epsilon = 1e-3  # 可以根据需要调整
         
         # Step 4: Run optimization
         logger.info("\nStep 4: Running optimization...")
@@ -1387,6 +1434,7 @@ def main():
 
         # Step 8: Run baseline comparison (NEW)
         logger.info("\nStep 8: Running baseline comparison...")
+        baseline_results = None  # 初始化变量
         try:
             from baseline_comparison import run_baseline_comparison
             
@@ -1404,7 +1452,17 @@ def main():
         except Exception as e:
             logger.error(f"Error during baseline comparison: {e}")
             logger.info("Main optimization completed successfully, but baseline comparison failed")
-        
+
+        # Final summary (修改以处理baseline_results可能为None的情况)
+        logger.info("\n" + "="*80)
+        logger.info("OPTIMIZATION AND ANALYSIS COMPLETE")
+        logger.info(f"Total solutions found: {len(df)}")
+        logger.info(f"Feasible solutions: {df['is_feasible'].sum() if 'is_feasible' in df else len(df)}")
+        logger.info(f"Results saved to: {config.output_dir}")
+        if baseline_results is not None:  # 检查是否为None
+            logger.info(f"Baseline comparison saved to: {config.output_dir}/baseline/")
+        logger.info("="*80)
+                
         # Final summary (修改以包含基线对比信息)
         logger.info("\n" + "="*80)
         logger.info("OPTIMIZATION AND ANALYSIS COMPLETE")

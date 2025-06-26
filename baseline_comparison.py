@@ -42,9 +42,9 @@ logger = logging.getLogger(__name__)
 class BaselineConfig:
     """Configuration for baseline methods"""
     # Method parameters
-    n_random_samples: int = 1000
+    n_random_samples: int = 500
     grid_resolution: int = 5  # Points per dimension for grid search
-    weight_combinations: int = 50  # Number of weight combinations for weighted sum
+    weight_combinations: int = 20  # Number of weight combinations for weighted sum
     
     # Optimization parameters (matching main framework)
     road_network_length_km: float = 500.0  # Updated to match config.json
