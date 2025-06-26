@@ -9,7 +9,7 @@ Provides simple baseline approaches:
 3. Single-Objective Weighted Sum
 4. Expert Heuristic Rules
 """
-
+from enhanced_evaluation_v2 import EnhancedFitnessEvaluatorV2, AdvancedEvaluationConfig
 import numpy as np
 import pandas as pd
 from typing import Dict, List, Tuple, Optional
@@ -67,10 +67,28 @@ class BaselineConfig:
 class BaselineEvaluator:
     """Simplified evaluator for baseline methods"""
     
-    def __init__(self, ontology_graph: Graph, config: BaselineConfig):
-        self.g = ontology_graph
-        self.config = config
-        self._cache_components()
+    def __init__(self, ontology_graph: Graph, config: BaselineConfig, 
+                    main_evaluator=None):  # 新增参数
+            self.g = ontology_graph
+            self.config = config
+            self._cache_components()
+            
+            # 直接使用主框架的评估器
+            if main_evaluator:
+                self.main_evaluator = main_evaluator
+            else:
+                # 创建完整的配置
+                adv_config = AdvancedEvaluationConfig(
+                    road_network_length_km=config.road_network_length_km,
+                    planning_horizon_years=config.planning_horizon_years,
+                    budget_cap_usd=config.budget_cap_usd,
+                    daily_wage_per_person=1500,  # 添加缺失的参数
+                    fos_sensor_spacing_km=0.1,   # 添加FOS间距
+                    depreciation_rate=0.1,        # 添加折旧率
+                    scenario_type='urban',        # 添加场景类型
+                    carbon_intensity_factor=0.417 # 添加碳强度
+                )
+                self.main_evaluator = EnhancedFitnessEvaluatorV2(ontology_graph, adv_config)
         
     def _cache_components(self):
         """Cache available components"""
@@ -157,28 +175,9 @@ class BaselineEvaluator:
         return objectives, is_feasible
 
     def evaluate(self, x: np.ndarray) -> Tuple[np.ndarray, bool]:
-        """Evaluate a solution (simplified with fiber optic handling)"""
+        """直接使用主评估器"""
         config = self.decode_solution(x)
-        
-        # Simplified objective calculations
-        f1 = self._calculate_cost(config)
-        f2 = self._calculate_detection_performance(config)
-        f3 = self._calculate_latency(config)
-        f4 = self._calculate_disruption(config)
-        f5 = self._calculate_environmental_impact(config)
-        f6 = self._calculate_reliability(config)
-        
-        # Check constraints
-        recall = 1 - f2
-        is_feasible = (
-            f1 <= self.config.budget_cap_usd and
-            recall >= self.config.min_recall_threshold and
-            f3 <= self.config.max_latency_seconds and
-            f5 <= self.config.max_energy_kwh_year and
-            (1/f6 if f6 > 0 else 0) >= self.config.min_mtbf_hours
-        )
-        
-        return np.array([f1, f2, f3, f4, f5, f6]), is_feasible
+        return self.main_evaluator.evaluate_solution(x, config)
     
     def _calculate_cost(self, config: Dict) -> float:
         """Simplified cost calculation"""
