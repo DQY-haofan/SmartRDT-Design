@@ -133,6 +133,29 @@ class BaselineEvaluator:
             'inspection_cycle': int(1 + x[10] * 364)
         }
     
+    # 在 BaselineEvaluator 类中添加
+    def evaluate_enhanced(self, x: np.ndarray) -> Tuple[np.ndarray, bool]:
+        """使用增强版评估逻辑"""
+        config = self.decode_solution(x)
+        
+        # 创建临时的高级配置
+        adv_config = AdvancedEvaluationConfig(
+            road_network_length_km=self.config.road_network_length_km,
+            planning_horizon_years=self.config.planning_horizon_years,
+            budget_cap_usd=self.config.budget_cap_usd
+        )
+        
+        # 创建增强评估器
+        evaluator = EnhancedFitnessEvaluatorV2(self.g, adv_config)
+        
+        # 评估
+        objectives, constraints = evaluator.evaluate_solution(x, config)
+        
+        # 检查可行性
+        is_feasible = np.all(constraints <= 0)
+        
+        return objectives, is_feasible
+
     def evaluate(self, x: np.ndarray) -> Tuple[np.ndarray, bool]:
         """Evaluate a solution (simplified with fiber optic handling)"""
         config = self.decode_solution(x)
@@ -330,7 +353,7 @@ class RandomSearchBaseline:
             x = np.random.rand(11)
             
             # Evaluate
-            objectives, is_feasible = self.evaluator.evaluate(x)
+            objectives, is_feasible = self.evaluator.evaluate_enhanced(x)
             
             # Decode for storage
             config = self.evaluator.decode_solution(x)
@@ -401,7 +424,7 @@ class GridSearchBaseline:
                         x[1] = 0.5  # Middle data rate
                         
                         # Evaluate
-                        objectives, is_feasible = self.evaluator.evaluate(x)
+                        objectives, is_feasible = self.evaluator.evaluate_enhanced(x)
                         config = self.evaluator.decode_solution(x)
                         
                         solution_id += 1
@@ -455,7 +478,7 @@ class WeightedSumBaseline:
             
             for _ in range(100):  # 100 random samples per weight set
                 x = np.random.rand(11)
-                objectives, is_feasible = self.evaluator.evaluate(x)
+                objectives, is_feasible = self.evaluator.evaluate_enhanced(x)
                 
                 if is_feasible:
                     # Normalize objectives
@@ -556,32 +579,32 @@ class ExpertHeuristicBaseline:
         
         # Expert Rule 1: High-performance configuration
         x1 = self._create_high_performance_config()
-        obj1, feas1 = self.evaluator.evaluate(x1)
+        obj1, feas1 = self.evaluator.evaluate_enhanced(x1)
         results.append(self._create_result('HighPerformance', 1, x1, obj1, feas1, start_time))
         
         # Expert Rule 2: Low-cost configuration
         x2 = self._create_low_cost_config()
-        obj2, feas2 = self.evaluator.evaluate(x2)
+        obj2, feas2 = self.evaluator.evaluate_enhanced(x2)
         results.append(self._create_result('LowCost', 2, x2, obj2, feas2, start_time))
         
         # Expert Rule 3: Balanced configuration
         x3 = self._create_balanced_config()
-        obj3, feas3 = self.evaluator.evaluate(x3)
+        obj3, feas3 = self.evaluator.evaluate_enhanced(x3)
         results.append(self._create_result('Balanced', 3, x3, obj3, feas3, start_time))
         
         # Expert Rule 4: Sustainable configuration
         x4 = self._create_sustainable_config()
-        obj4, feas4 = self.evaluator.evaluate(x4)
+        obj4, feas4 = self.evaluator.evaluate_enhanced(x4)
         results.append(self._create_result('Sustainable', 4, x4, obj4, feas4, start_time))
         
         # Expert Rule 5: Reliable configuration
         x5 = self._create_reliable_config()
-        obj5, feas5 = self.evaluator.evaluate(x5)
+        obj5, feas5 = self.evaluator.evaluate_enhanced(x5)
         results.append(self._create_result('Reliable', 5, x5, obj5, feas5, start_time))
         
         # Expert Rule 6: Fiber Optic configuration (new)
         x6 = self._create_fiber_optic_config()
-        obj6, feas6 = self.evaluator.evaluate(x6)
+        obj6, feas6 = self.evaluator.evaluate_enhanced(x6)
         results.append(self._create_result('FiberOptic', 6, x6, obj6, feas6, start_time))
         
         df = pd.DataFrame(results)

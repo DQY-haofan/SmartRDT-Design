@@ -779,7 +779,8 @@ class ResultsManager:
                 'f2_one_minus_recall': round(float(f2_raw), 4),
                 'f3_latency_seconds': round(float(f3_raw), 2),
                 'f4_traffic_disruption_hours': round(float(f4_raw), 2),
-                'f5_carbon_emissions_kgCO2e_year': round(float(f5_raw), 2),  # 注意：现在是碳排放
+                'f5_carbon_emissions_kgCO2e_year': round(float(f5_raw), 2),  
+                    'f5_environmental_impact_kWh_year': round(float(f5_raw / 0.417), 2),  # 兼容旧版本：转回能耗 # 注意：现在是碳排放
                 'f6_system_reliability_inverse_MTBF': round(float(f6_raw), 8),
                 
                 # 衍生指标
@@ -1374,7 +1375,7 @@ def main():
         # 添加这行来生成增强版可视化
         from advanced_visualizations import create_all_publication_figures
         create_all_publication_figures(
-            csv_file=Path(config.output_dir) / 'pareto_solutions_6d.csv',
+            csv_file=Path(config.output_dir) / 'pareto_solutions_6d_enhanced.csv',
             output_dir=Path(config.output_dir) / 'publication_figures'
         )
         
@@ -1390,7 +1391,7 @@ def main():
             
             baseline_results = run_baseline_comparison(
                 ontology_graph=ontology_graph,
-                pareto_csv_path=Path(config.output_dir) / 'pareto_solutions_6d.csv'
+                pareto_csv_path=Path(config.output_dir) / 'pareto_solutions_6d_enhanced.csv'
             )
             
             if baseline_results:
