@@ -403,55 +403,82 @@ def create_objective_correlation_heatmap(df, output_dir='./results'):
     from scipy.spatial.distance import squareform
     
     # Calculate distance matrix and perform hierarchical clustering
-    # FIXED: Ensure matrix is perfectly symmetric
+    # Convert correlation to distance
     distance_matrix = 1 - np.abs(corr_matrix.values)
     
-    # Force perfect symmetry by using upper triangle
+    # COMPLETE FIX: Ensure perfect symmetry and valid distance matrix
     n = distance_matrix.shape[0]
+    
+    # Method 1: Create a perfectly symmetric matrix from upper triangle
+    distance_matrix_clean = np.zeros((n, n))
     for i in range(n):
-        for j in range(i+1, n):
-            avg_val = (distance_matrix[i, j] + distance_matrix[j, i]) / 2
-            distance_matrix[i, j] = avg_val
-            distance_matrix[j, i] = avg_val
+        for j in range(i, n):
+            if i == j:
+                distance_matrix_clean[i, j] = 0.0
+            else:
+                # Use average of both values to ensure symmetry
+                avg_dist = (distance_matrix[i, j] + distance_matrix[j, i]) / 2
+                distance_matrix_clean[i, j] = avg_dist
+                distance_matrix_clean[j, i] = avg_dist
     
-    # Set diagonal to exactly 0
-    np.fill_diagonal(distance_matrix, 0)
+    # Ensure all values are valid (between 0 and 1 for correlation-based distances)
+    distance_matrix_clean = np.clip(distance_matrix_clean, 0, 1)
     
-    # Additional check: round to avoid floating point issues
-    distance_matrix = np.round(distance_matrix, decimals=10)
+    # Round to avoid floating point precision issues
+    distance_matrix_clean = np.round(distance_matrix_clean, decimals=10)
     
-    # Convert to condensed form
+    # Verify symmetry
+    if not np.allclose(distance_matrix_clean, distance_matrix_clean.T):
+        print("Warning: Matrix still not perfectly symmetric, forcing symmetry...")
+        distance_matrix_clean = (distance_matrix_clean + distance_matrix_clean.T) / 2
+    
     try:
-        condensed_distances = squareform(distance_matrix, checks=True)
+        # Method 1: Try with checks
+        condensed_distances = squareform(distance_matrix_clean, checks=True)
     except ValueError:
-        # If still failing, use force=True to bypass checks
-        condensed_distances = squareform(distance_matrix, force='tovector')
+        # Method 2: If that fails, manually create condensed form
+        print("Using manual condensed form creation...")
+        condensed_distances = []
+        for i in range(n):
+            for j in range(i + 1, n):
+                condensed_distances.append(distance_matrix_clean[i, j])
+        condensed_distances = np.array(condensed_distances)
     
     # Perform clustering
-    linkage_matrix = linkage(condensed_distances, method='average')
-    
-    # Create dendrogram
-    dendro = dendrogram(linkage_matrix, labels=display_names, ax=ax2, 
-                       orientation='top', color_threshold=0)
-    ax2.set_title('Objective Clustering Dendrogram', fontsize=16)
-    ax2.set_ylabel('Distance (1 - |correlation|)', fontsize=12)
-    
-    # Reorder correlation matrix based on clustering
-    order = dendro['leaves']
-    clustered_corr = corr_matrix.iloc[order, order]
-    
-    # Create inset for clustered heatmap
-    from mpl_toolkits.axes_grid1.inset_locator import inset_axes
-    axins = inset_axes(ax2, width="40%", height="40%", loc='lower right',
-                      bbox_to_anchor=(0.05, 0.05, 0.9, 0.4),
-                      bbox_transform=ax2.transAxes)
-    
-    sns.heatmap(clustered_corr, annot=False, cmap='RdBu_r',
-                center=0, vmin=-1, vmax=1, square=True,
-                cbar=False, ax=axins)
-    axins.set_xticklabels([])
-    axins.set_yticklabels([])
-    axins.set_title('Clustered', fontsize=10)
+    try:
+        linkage_matrix = linkage(condensed_distances, method='average')
+        
+        # Create dendrogram
+        dendro = dendrogram(linkage_matrix, labels=display_names, ax=ax2, 
+                           orientation='top', color_threshold=0)
+        ax2.set_title('Objective Clustering Dendrogram', fontsize=16)
+        ax2.set_ylabel('Distance (1 - |correlation|)', fontsize=12)
+        
+        # Reorder correlation matrix based on clustering
+        order = dendro['leaves']
+        clustered_corr = corr_matrix.iloc[order, order]
+        
+        # Create inset for clustered heatmap
+        from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+        axins = inset_axes(ax2, width="40%", height="40%", loc='lower right',
+                          bbox_to_anchor=(0.05, 0.05, 0.9, 0.4),
+                          bbox_transform=ax2.transAxes)
+        
+        sns.heatmap(clustered_corr, annot=False, cmap='RdBu_r',
+                    center=0, vmin=-1, vmax=1, square=True,
+                    cbar=False, ax=axins)
+        axins.set_xticklabels([])
+        axins.set_yticklabels([])
+        axins.set_title('Clustered', fontsize=10)
+        
+    except Exception as e:
+        print(f"Clustering failed: {e}")
+        # Fallback: just show a text message
+        ax2.text(0.5, 0.5, 'Clustering visualization\nunavailable due to\nnumerical issues', 
+                ha='center', va='center', fontsize=14,
+                transform=ax2.transAxes)
+        ax2.set_title('Objective Clustering (Unavailable)', fontsize=16)
+        ax2.axis('off')
     
     plt.suptitle('Objective Relationships Analysis', fontsize=18)
     plt.tight_layout()
@@ -460,7 +487,11 @@ def create_objective_correlation_heatmap(df, output_dir='./results'):
     fig.savefig(f'{output_dir}/png/objective_correlation_6d.png', dpi=300, bbox_inches='tight')
     fig.savefig(f'{output_dir}/pdf/objective_correlation_6d.pdf', bbox_inches='tight')
     plt.close(fig)
-    
+
+    # Also save the correlation matrix as CSV for further analysis
+    corr_matrix.to_csv(f'{output_dir}/objective_correlations.csv')
+    print("Saved correlation matrix to objective_correlations.csv")
+
 def create_pareto_front_2d_projections(df, output_dir='./results'):
     """Create 2D projections of 6D Pareto front"""
     
