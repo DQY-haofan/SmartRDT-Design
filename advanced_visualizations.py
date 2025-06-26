@@ -401,7 +401,42 @@ def create_figure_3_insights_and_comparison(df, output_dir='./results'):
     # 2. Technology Distribution
     ax2 = fig.add_subplot(gs[0, 1])
     
-    sensor_counts = df['sensor'].str.extract(r'#(.+?)_')[0].value_counts()
+    # 提取传感器类型（处理多种格式）
+    def extract_sensor_type(sensor_name):
+        """从传感器名称中提取类型"""
+        # 移除 # 前缀（如果有）
+        sensor_name = str(sensor_name).split('#')[-1]
+        
+        # 提取主要类型
+        if 'MMS' in sensor_name:
+            return 'MMS'
+        elif 'UAV' in sensor_name:
+            return 'UAV'
+        elif 'TLS' in sensor_name:
+            return 'TLS'
+        elif 'Vehicle' in sensor_name:
+            return 'Vehicle'
+        elif 'IoT' in sensor_name:
+            return 'IoT'
+        elif 'FOS' in sensor_name or 'Fiber' in sensor_name:
+            return 'FiberOptic'
+        elif 'Handheld' in sensor_name:
+            return 'Handheld'
+        else:
+            # 尝试提取第一个下划线前的部分
+            parts = sensor_name.split('_')
+            if len(parts) > 0:
+                return parts[0]
+            return 'Other'
+    
+    # 应用提取函数
+    df['sensor_type'] = df['sensor'].apply(extract_sensor_type)
+    sensor_counts = df['sensor_type'].value_counts()
+    
+    # 确保 sensor_counts 不为空
+    if len(sensor_counts) == 0:
+        logger.warning("No sensor types found in data")
+        sensor_counts = pd.Series({'Unknown': len(df)})
     
     # Bar plot
     bars = ax2.bar(range(len(sensor_counts)), sensor_counts.values, 
@@ -416,7 +451,7 @@ def create_figure_3_insights_and_comparison(df, output_dir='./results'):
     for i, (bar, count) in enumerate(zip(bars, sensor_counts.values)):
         ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1,
                 f'{count/len(df)*100:.0f}%', ha='center', va='bottom', fontsize=8)
-    
+        
     # 3. Trade-off Visualization
     ax3 = fig.add_subplot(gs[0, 2])
     
@@ -436,14 +471,29 @@ def create_figure_3_insights_and_comparison(df, output_dir='./results'):
     cbar = plt.colorbar(scatter, ax=ax3)
     cbar.set_label('MTBF (years)', fontsize=9)
     
-    # 4. Summary Statistics
+     # 4. Summary Statistics
     ax4 = fig.add_subplot(gs[1, :])
     ax4.axis('off')
+    
+    # 修复统计文本生成
+    # 找到最可持续的传感器类型
+    if 'sensor_type' in df.columns and len(df) > 0:
+        sustainability_by_sensor = df.groupby('sensor_type')['f5_environmental_impact_kWh_year'].mean().sort_values()
+        
+        if len(sustainability_by_sensor) > 0:
+            most_sustainable_sensor = sustainability_by_sensor.index[0]
+            most_sustainable_value = sustainability_by_sensor.iloc[0]
+        else:
+            most_sustainable_sensor = "N/A"
+            most_sustainable_value = 0
+    else:
+        most_sustainable_sensor = "N/A"
+        most_sustainable_value = 0
     
     # Create summary text with key findings
     stats_text = f"""Key Findings from Multi-Objective Optimization:
 
-- Solution Space: {len(df)} Pareto-optimal configurations identified from 7,500 evaluations
+- Solution Space: {len(df)} Pareto-optimal configurations identified from {7500 if hasattr(df, 'total_evaluations') else 'N/A'} evaluations
 
 - Performance Ranges:
   - Cost: ${df['f1_total_cost_USD'].min():,.0f} - ${df['f1_total_cost_USD'].max():,.0f} (avg: ${df['f1_total_cost_USD'].mean():,.0f})
@@ -454,12 +504,12 @@ def create_figure_3_insights_and_comparison(df, output_dir='./results'):
 - Trade-off Insights:
   - Strong positive correlation between Cost and Recall (r = {df['f1_total_cost_USD'].corr(df['detection_recall']):.2f})
   - Cost and Reliability are positively correlated (r = {df['f1_total_cost_USD'].corr(df['system_MTBF_hours']):.2f})
-  - Most sustainable sensor: {sensor_counts.index[0]} ({df[df['sensor'].str.contains(sensor_counts.index[0])]['f5_environmental_impact_kWh_year'].mean():.0f} kWh/year avg)
+  - Most sustainable sensor type: {most_sustainable_sensor} ({most_sustainable_value:.0f} kWh/year avg)
 
 - Configuration Recommendations:
-  - Budget-constrained: Vehicle sensors with ML algorithms (${df[df['sensor'].str.contains('Vehicle')]['f1_total_cost_USD'].mean():,.0f} avg cost)
-  - Performance-focused: FOS sensors achieve {df[df['sensor'].str.contains('FOS')]['detection_recall'].mean():.3f} avg recall
-  - Sustainability-focused: IoT networks consume only {df[df['sensor'].str.contains('IoT')]['f5_environmental_impact_kWh_year'].mean():.0f} kWh/year avg
+  - Budget-constrained: {'Vehicle' if 'Vehicle' in sensor_counts.index else list(sensor_counts.index)[0] if len(sensor_counts) > 0 else 'N/A'} sensors
+  - Performance-focused: {'FiberOptic' if 'FiberOptic' in sensor_counts.index else 'High-end sensors'}
+  - Sustainability-focused: {most_sustainable_sensor} technology
 """
     
     ax4.text(0.05, 0.95, stats_text, transform=ax4.transAxes,
@@ -473,7 +523,6 @@ def create_figure_3_insights_and_comparison(df, output_dir='./results'):
     fig.savefig(f'{output_dir}/figure_3_insights_comparison.png', dpi=300)
     fig.savefig(f'{output_dir}/figure_3_insights_comparison.pdf')
     plt.close(fig)
-
 
 def create_figure_4_expert_analysis(df, output_dir='./results'):
     """
@@ -490,15 +539,50 @@ def create_figure_4_expert_analysis(df, output_dir='./results'):
     df['capital_cost_ratio'] = df['annual_cost'] * 0.3  # 估算资本成本比例
     df['operational_cost_ratio'] = df['annual_cost'] * 0.7
     
+    # 更健壮的传感器类型提取
+    def extract_sensor_type_safe(sensor_name):
+        """安全地提取传感器类型"""
+        sensor_str = str(sensor_name)
+        
+        # 如果包含#，取#后面的部分
+        if '#' in sensor_str:
+            sensor_str = sensor_str.split('#')[-1]
+        
+        # 尝试不同的提取策略
+        # 策略1: 提取第一个下划线前的部分
+        if '_' in sensor_str:
+            return sensor_str.split('_')[0]
+        
+        # 策略2: 查找特定的传感器类型关键词
+        sensor_types = ['MMS', 'UAV', 'TLS', 'Vehicle', 'IoT', 'FOS', 'Handheld', 
+                       'LiDAR', 'Camera', 'FiberOptic']
+        for stype in sensor_types:
+            if stype in sensor_str:
+                return stype
+        
+        # 默认返回整个名称（截断到合理长度）
+        return sensor_str[:15] if len(sensor_str) > 15 else sensor_str
+    
+    # 应用安全的提取函数
+    df['sensor_type_safe'] = df['sensor'].apply(extract_sensor_type_safe)
+    
     # 按传感器类型分组
-    sensor_costs = df.groupby(df['sensor'].str.extract(r'#(.+?)_')[0])[
+    sensor_costs = df.groupby('sensor_type_safe')[
         ['capital_cost_ratio', 'operational_cost_ratio']].mean()
     
-    sensor_costs.plot(kind='bar', stacked=True, ax=ax1, 
-                     color=['#1f77b4', '#ff7f0e'])
-    ax1.set_ylabel('Annual Cost (k$)', fontsize=12)
-    ax1.set_title('(a) Annualized Cost Breakdown by Sensor Type', fontsize=14)
-    ax1.legend(['Capital', 'Operational'])
+    # 检查是否有数据
+    if len(sensor_costs) > 0:
+        sensor_costs.plot(kind='bar', stacked=True, ax=ax1, 
+                         color=['#1f77b4', '#ff7f0e'])
+        ax1.set_ylabel('Annual Cost (k$)', fontsize=12)
+        ax1.set_title('(a) Annualized Cost Breakdown by Sensor Type', fontsize=14)
+        ax1.legend(['Capital', 'Operational'])
+        ax1.set_xticklabels(ax1.get_xticklabels(), rotation=45, ha='right')
+    else:
+        # 如果没有数据，显示空图表和消息
+        ax1.text(0.5, 0.5, 'No sensor cost data available', 
+                ha='center', va='center', transform=ax1.transAxes)
+        ax1.set_title('(a) Annualized Cost Breakdown by Sensor Type', fontsize=14)
     
     # 2. 碳足迹分析
     ax2 = plt.subplot(2, 3, 2)
@@ -595,11 +679,13 @@ def create_figure_4_expert_analysis(df, output_dir='./results'):
     ax6 = plt.subplot(2, 3, 6, projection='polar')
     
     # 选择代表性解决方案
-    best_solutions = {
-        'Low Cost': df.loc[df['f1_total_cost_USD'].idxmin()],
-        'High Performance': df.loc[df['detection_recall'].idxmax()],
-        'Sustainable': df.loc[df['f5_environmental_impact_kWh_year'].idxmin()]
-    }
+    best_solutions = {}
+    
+    if len(df) > 0:
+        # 确保我们有数据
+        best_solutions['Low Cost'] = df.loc[df['f1_total_cost_USD'].idxmin()]
+        best_solutions['High Performance'] = df.loc[df['detection_recall'].idxmax()]
+        best_solutions['Sustainable'] = df.loc[df['f5_environmental_impact_kWh_year'].idxmin()]
     
     objectives = ['Cost', 'Recall', 'Speed', 'Reliability', 'Sustainability', 'Disruption']
     
@@ -610,16 +696,16 @@ def create_figure_4_expert_analysis(df, output_dir='./results'):
         # 归一化值
         values = [
             1 - (sol['f1_total_cost_USD'] - df['f1_total_cost_USD'].min()) / 
-                (df['f1_total_cost_USD'].max() - df['f1_total_cost_USD'].min()),
+                (df['f1_total_cost_USD'].max() - df['f1_total_cost_USD'].min() + 1e-10),
             sol['detection_recall'],
             1 - (sol['f3_latency_seconds'] - df['f3_latency_seconds'].min()) / 
-                (df['f3_latency_seconds'].max() - df['f3_latency_seconds'].min()),
+                (df['f3_latency_seconds'].max() - df['f3_latency_seconds'].min() + 1e-10),
             (sol['system_MTBF_hours'] - df['system_MTBF_hours'].min()) / 
-                (df['system_MTBF_hours'].max() - df['system_MTBF_hours'].min()),
+                (df['system_MTBF_hours'].max() - df['system_MTBF_hours'].min() + 1e-10),
             1 - (sol['f5_environmental_impact_kWh_year'] - df['f5_environmental_impact_kWh_year'].min()) / 
-                (df['f5_environmental_impact_kWh_year'].max() - df['f5_environmental_impact_kWh_year'].min()),
+                (df['f5_environmental_impact_kWh_year'].max() - df['f5_environmental_impact_kWh_year'].min() + 1e-10),
             1 - (sol['f4_traffic_disruption_hours'] - df['f4_traffic_disruption_hours'].min()) / 
-                (df['f4_traffic_disruption_hours'].max() - df['f4_traffic_disruption_hours'].min())
+                (df['f4_traffic_disruption_hours'].max() - df['f4_traffic_disruption_hours'].min() + 1e-10)
         ]
         values = np.concatenate([values, [values[0]]])
         
@@ -640,7 +726,7 @@ def create_figure_4_expert_analysis(df, output_dir='./results'):
     fig.savefig(f'{output_dir}/figure_4_expert_analysis.pdf', bbox_inches='tight')
     plt.close(fig)
     
-    logger.info("Created expert analysis visualization (Figure 4)")
+    print("Created expert analysis visualization (Figure 4)")
 
 
 def create_all_publication_figures(csv_file='./results/pareto_solutions_6d_enhanced.csv', 
