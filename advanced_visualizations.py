@@ -643,7 +643,7 @@ def create_figure_4_expert_analysis(df, output_dir='./results'):
     logger.info("Created expert analysis visualization (Figure 4)")
 
 
-def create_all_publication_figures(csv_file='./results/pareto_solutions_6d_advanced.csv', 
+def create_all_publication_figures(csv_file='./results/pareto_solutions_6d_enhanced.csv', 
                                   output_dir='./results/publication_figures'):
     """
     Generate all publication-quality figures for the journal article
