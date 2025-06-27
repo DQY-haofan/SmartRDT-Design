@@ -107,9 +107,9 @@ def save_results_summary(results: Dict, config) -> None:
                     'mean': float(nsga3_df['f5_carbon_emissions_kgCO2e_year'].mean())
                 }
         else:
-            summary['results']['nsga2'] = {
+            summary['results']['nsga3'] = {
                 'total_solutions': 0,
-                'computation_time': results['nsga2'].get('time', 0),
+                'computation_time': results['nsga3'].get('time', 0),
                 'message': 'No feasible solutions found'
             }
     
@@ -178,9 +178,9 @@ def generate_text_report(summary: Dict, config) -> str:
             report.append("NSGA-III Pareto Front:")
             report.append(f"  Total Solutions: {nsga3.get('total_solutions', 0)}")
             
-            if 'objectives' in nsga2:
+            if 'objectives' in nsga3:
                 report.append("  Objective Ranges:")
-                obj = nsga2['objectives']
+                obj = nsga3['objectives']
                 
                 if 'cost' in obj:
                     report.append(f"    Cost: ${obj['cost']['min']:,.0f} - ${obj['cost']['max']:,.0f} "
@@ -194,7 +194,7 @@ def generate_text_report(summary: Dict, config) -> str:
                     report.append(f"    Carbon: {obj['carbon']['min']:,.0f} - {obj['carbon']['max']:,.0f} "
                                  f"kgCO2e/year (avg: {obj['carbon']['mean']:,.0f})")
             else:
-                report.append(f"  Status: {nsga2.get('message', 'No feasible solutions')}")
+                report.append(f"  Status: {nsga3.get('message', 'No feasible solutions')}")
             report.append("")
         
         # Baseline results
