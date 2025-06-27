@@ -150,7 +150,7 @@ class EnhancedFitnessEvaluatorV2:
         sensor_name = str(config['sensor']).split('#')[-1]
         
         # ========== 1. 计算初始投资成本 ==========
-            
+        
         # 获取单个传感器成本
         sensor_initial_cost = self._query_property(
             config['sensor'], str(RDTCO.hasInitialCostUSD), 100000)
@@ -158,7 +158,7 @@ class EnhancedFitnessEvaluatorV2:
         # 关键修复：FOS需要多个传感器覆盖整个网络
         if 'FOS' in sensor_name or 'Fiber' in sensor_name:
             # 光纤传感器需要沿道路密集部署
-            sensor_spacing_km = self.config.fos_sensor_spacing_km  # 使用配置中的值
+            sensor_spacing_km = getattr(self.config, 'fos_sensor_spacing_km', 0.1)  # 默认每100米一个
             sensors_needed = self.config.road_network_length_km / sensor_spacing_km
             
             # 实际传感器成本 = 单价 × 数量
@@ -171,19 +171,11 @@ class EnhancedFitnessEvaluatorV2:
             # FOS的总初始成本
             total_sensor_initial = actual_sensor_cost + total_installation_cost
             
-            # 添加详细日志
-            logger.debug(f"FOS cost calculation:")
-            logger.debug(f"  Network length: {self.config.road_network_length_km} km")
-            logger.debug(f"  Sensor spacing: {sensor_spacing_km} km")
-            logger.debug(f"  Sensors needed: {sensors_needed:.0f}")
-            logger.debug(f"  Unit cost: ${sensor_initial_cost:.0f}")
-            logger.debug(f"  Total sensor cost: ${actual_sensor_cost:.0f}")
-            logger.debug(f"  Installation cost: ${total_installation_cost:.0f}")
-            logger.debug(f"  Total initial: ${total_sensor_initial:.0f}")
+            logger.debug(f"FOS cost: {sensors_needed:.0f} sensors × ${sensor_initial_cost:.0f} "
+                        f"+ ${total_installation_cost:.0f} installation = ${total_sensor_initial:.0f}")
         else:
             # 移动传感器只需要一套设备
             total_sensor_initial = sensor_initial_cost
-            logger.debug(f"Mobile sensor {sensor_name}: ${total_sensor_initial:.0f}")
         
         # 其他组件的初始成本
         storage_initial = self._query_property(
