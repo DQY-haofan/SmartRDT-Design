@@ -700,7 +700,7 @@ class Visualizer:
                 autotext.set_fontsize(8)
                 autotext.set_weight('bold')
         else:
-            ax.text(0.5, 0.5, '无传感器数据', ha='center', va='center', fontsize=12)
+            ax.text(0.5, 0.5, 'No Sensor Data', ha='center', va='center', fontsize=12)
             ax.axis('off')
 
     def _plot_trade_off_analysis(self, df: pd.DataFrame, ax):
@@ -713,22 +713,22 @@ class Visualizer:
             # 最低成本
             min_cost_idx = df['f1_total_cost_USD'].argmin()
             solutions.append(df.iloc[min_cost_idx])
-            labels.append('最低成本')
+            labels.append('Lowest cost')
             
             # 最高召回率
             max_recall_idx = df['detection_recall'].argmax()
             if max_recall_idx != min_cost_idx:
                 solutions.append(df.iloc[max_recall_idx])
-                labels.append('最高性能')
+                labels.append('Highest performance')
             
             # 随机选择一个中间解
             if len(df) > 2:
                 mid_idx = len(df) // 2
                 solutions.append(df.iloc[mid_idx])
-                labels.append('平衡方案')
+                labels.append('Balancing scheme')
             
             # 准备雷达图数据
-            categories = ['成本', '召回率', '延迟', '干扰', '碳排放', '可靠性']
+            categories = ['Cost', 'Recall rate', 'Latency', 'Interference', 'Carbon emissions', 'Reliability']
             
             # 归一化数据
             fig_temp = plt.figure(figsize=(6, 6))
@@ -778,10 +778,10 @@ class Visualizer:
             
             # 将雷达图复制到原始轴
             plt.close(fig_temp)
-            ax.text(0.5, 0.5, '见独立雷达图', ha='center', va='center', fontsize=10)
+            ax.text(0.5, 0.5, 'See separate radar chart', ha='center', va='center', fontsize=10)
             ax.axis('off')
         else:
-            ax.text(0.5, 0.5, '无数据', ha='center', va='center', fontsize=12)
+            ax.text(0.5, 0.5, 'No data', ha='center', va='center', fontsize=12)
             ax.axis('off')
 
     def _plot_summary_statistics(self, df: pd.DataFrame, ax):
