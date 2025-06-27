@@ -7,7 +7,7 @@ Handles all configuration parameters
 import json
 import logging
 from pathlib import Path
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -65,6 +65,10 @@ class ConfigManager:
     log_dir: Path = field(default_factory=lambda: Path('./results/logs'))
     figure_format: List[str] = field(default_factory=lambda: ['png', 'pdf'])
     
+    # Additional parameters that might be in config.json
+    data_retention_years: int = 3
+    enable_debug_output: bool = True
+    
     # Advanced parameters
     class_imbalance_penalties: Dict[str, float] = field(default_factory=lambda: {
         'Traditional': 0.05,
@@ -92,21 +96,17 @@ class ConfigManager:
     night_hour_factor: float = 0.3
     default_lane_closure_ratio: float = 0.3
     
-    def __init__(self, config_file: str = 'config.json'):
-        """Initialize configuration from file if exists"""
-        self.config_file = config_file
-        
+    def __post_init__(self):
+        """Initialize after dataclass creation"""
         # Load from file if exists
-        if Path(config_file).exists():
-            self.load_from_file(config_file)
+        if Path(self.config_file).exists():
+            self.load_from_file(self.config_file)
         
         # Process computed values
         self._process_config()
         
         # Create directories
         self._create_directories()
-    
-    # def _set_defaults method removed - merged into _process_config
     
     def load_from_file(self, filepath: str):
         """Load configuration from JSON file"""
@@ -116,9 +116,12 @@ class ConfigManager:
             with open(filepath, 'r') as f:
                 data = json.load(f)
             
+            # Get all field names from dataclass
+            field_names = {f.name for f in fields(self)}
+            
             # Update attributes
             for key, value in data.items():
-                if hasattr(self, key):
+                if key in field_names:
                     # Handle Path objects
                     if key in ['output_dir', 'log_dir']:
                         value = Path(value)
