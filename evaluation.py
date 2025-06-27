@@ -9,6 +9,7 @@ import pandas as pd
 from typing import Dict, List, Tuple, Optional, Any
 import logging
 from functools import lru_cache
+from rdflib.namespace import RDF, RDFS, OWL
 from rdflib import Graph, Namespace
 import pickle
 
