@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Core Optimization Module - NSGA-II Implementation
-Complete functionality from original framework
+Core Optimization Module - NSGA-II/III Implementation
+Fixed version with 6 objectives and proper attribute access
 """
 
 import numpy as np
@@ -19,19 +19,16 @@ from pymoo.operators.sampling.rnd import FloatRandomSampling
 from pymoo.optimize import minimize
 from pymoo.termination import get_termination
 
-# Import will be done after module is loaded to avoid circular import
-# from evaluation import EnhancedFitnessEvaluatorV2
-
 logger = logging.getLogger(__name__)
 
 
 class RMTwinProblem(Problem):
-    """Multi-objective optimization problem formulation"""
+    """Multi-objective optimization problem formulation with 6 objectives"""
     
     def __init__(self, evaluator, n_objectives=6):
         # Problem dimensions
         n_var = 11  # Decision variables
-        n_constr = 3  # Constraints
+        n_constr = 5  # Increased constraints for 6 objectives
         
         # Variable bounds
         xl = np.zeros(n_var)
@@ -65,15 +62,18 @@ class RMTwinProblem(Problem):
                 'cost': objectives[:, 0].argmin(),
                 'recall': objectives[:, 1].argmin(),
                 'latency': objectives[:, 2].argmin(),
-                'carbon': objectives[:, 4].argmin()
+                'disruption': objectives[:, 3].argmin(),
+                'carbon': objectives[:, 4].argmin() if objectives.shape[1] > 4 else None,
+                'reliability': objectives[:, 5].argmin() if objectives.shape[1] > 5 else None
             }
             
             for name, idx in best_indices.items():
-                logger.debug(f"Current best {name}: {objectives[idx]}")
+                if idx is not None:
+                    logger.debug(f"Current best {name}: {objectives[idx]}")
 
 
 class RMTwinOptimizer:
-    """Main optimization orchestrator"""
+    """Main optimization orchestrator for 6-objective optimization"""
     
     def __init__(self, ontology_graph, config):
         self.ontology_graph = ontology_graph
@@ -92,7 +92,7 @@ class RMTwinOptimizer:
         self.algorithm = self._configure_algorithm()
         
     def _configure_algorithm(self):
-        """Configure NSGA-II/III algorithm"""
+        """Configure NSGA-II/III algorithm based on number of objectives"""
         if self.config.n_objectives <= 3:
             # Use NSGA-II for few objectives
             algorithm = NSGA2(
@@ -105,11 +105,16 @@ class RMTwinOptimizer:
                 eliminate_duplicates=True
             )
         else:
-            # Use NSGA-III for many objectives
+            # Use NSGA-III for many objectives (4-6)
             from pymoo.util.ref_dirs import get_reference_directions
-            ref_dirs = get_reference_directions("das-dennis", 
-                                              self.config.n_objectives, 
-                                              n_partitions=12)
+            
+            # Get reference directions
+            if self.config.n_objectives == 4:
+                ref_dirs = get_reference_directions("das-dennis", 4, n_partitions=12)
+            elif self.config.n_objectives == 5:
+                ref_dirs = get_reference_directions("das-dennis", 5, n_partitions=7)
+            else:  # 6 objectives
+                ref_dirs = get_reference_directions("das-dennis", 6, n_partitions=5)
             
             algorithm = NSGA3(
                 ref_dirs=ref_dirs,
@@ -126,7 +131,7 @@ class RMTwinOptimizer:
     
     def optimize(self) -> Tuple[pd.DataFrame, Dict]:
         """Run optimization and return results"""
-        logger.info(f"Starting {self.algorithm.__class__.__name__} optimization...")
+        logger.info(f"Starting {self.algorithm.__class__.__name__} optimization with {self.config.n_objectives} objectives...")
         
         # Configure termination
         termination = get_termination("n_gen", self.config.n_generations)
@@ -144,11 +149,11 @@ class RMTwinOptimizer:
         # Process results
         pareto_df = self._process_results(res)
         
-        # Extract history
+        # Extract history (fixed n_eval access)
         history = {
-            'n_evals': res.algorithm.n_eval,
-            'exec_time': res.exec_time,
-            'n_gen': res.algorithm.n_gen,
+            'n_evals': res.algorithm.evaluator.n_eval if hasattr(res.algorithm, 'evaluator') else self.problem._eval_count,
+            'exec_time': res.exec_time if hasattr(res, 'exec_time') else 0,
+            'n_gen': res.algorithm.n_gen if hasattr(res.algorithm, 'n_gen') else self.config.n_generations,
             'history': res.history if hasattr(res, 'history') else None
         }
         
@@ -173,7 +178,7 @@ class RMTwinOptimizer:
             # Get objectives
             objectives = F[i]
             
-            # Create result dictionary
+            # Create result dictionary based on number of objectives
             result = {
                 'solution_id': i + 1,
                 
@@ -190,29 +195,31 @@ class RMTwinOptimizer:
                 'crew_size': config['crew_size'],
                 'inspection_cycle_days': config['inspection_cycle'],
                 
-                # Raw objectives
+                # Raw objectives (4 base objectives)
                 'f1_total_cost_USD': float(objectives[0]),
                 'f2_one_minus_recall': float(objectives[1]),
                 'f3_latency_seconds': float(objectives[2]),
                 'f4_traffic_disruption_hours': float(objectives[3]),
-                'f5_carbon_emissions_kgCO2e_year': float(objectives[4]),
-                'f6_system_reliability_inverse_MTBF': float(objectives[5]),
                 
                 # Derived metrics
                 'detection_recall': float(1 - objectives[1]),
-                'system_MTBF_hours': float(1/objectives[5] if objectives[5] > 0 else 1e6),
-                'system_MTBF_years': float(1/objectives[5]/8760 if objectives[5] > 0 else 100),
                 'annual_cost_USD': float(objectives[0] / self.config.planning_horizon_years),
                 'cost_per_km_year': float(objectives[0] / self.config.planning_horizon_years / 
                                          self.config.road_network_length_km),
-                'carbon_footprint_tons_CO2_year': float(objectives[4] / 1000),
-                
-                # Constraint checks
-                'is_feasible': True,  # All Pareto solutions are feasible
-                'latency_constraint_ok': bool(objectives[2] <= self.config.max_latency_seconds),
-                'recall_constraint_ok': bool((1 - objectives[1]) >= self.config.min_recall_threshold),
-                'budget_constraint_ok': bool(objectives[0] <= self.config.budget_cap_usd)
             }
+            
+            # Add additional objectives if present
+            if len(objectives) > 4:
+                result['f5_carbon_emissions_kgCO2e_year'] = float(objectives[4])
+                result['carbon_footprint_tons_CO2_year'] = float(objectives[4] / 1000)
+            
+            if len(objectives) > 5:
+                result['f6_system_reliability_inverse_MTBF'] = float(objectives[5])
+                result['system_MTBF_hours'] = float(1/objectives[5] if objectives[5] > 0 else 1e6)
+                result['system_MTBF_years'] = float(1/objectives[5]/8760 if objectives[5] > 0 else 100)
+            
+            # All Pareto solutions are feasible
+            result['is_feasible'] = True
             
             results.append(result)
         
@@ -223,8 +230,12 @@ class RMTwinOptimizer:
         # Add rankings
         df['cost_rank'] = df['f1_total_cost_USD'].rank()
         df['recall_rank'] = df['detection_recall'].rank(ascending=False)
-        df['carbon_rank'] = df['f5_carbon_emissions_kgCO2e_year'].rank()
-        df['reliability_rank'] = df['system_MTBF_hours'].rank(ascending=False)
+        
+        if 'f5_carbon_emissions_kgCO2e_year' in df.columns:
+            df['carbon_rank'] = df['f5_carbon_emissions_kgCO2e_year'].rank()
+        
+        if 'system_MTBF_hours' in df.columns:
+            df['reliability_rank'] = df['system_MTBF_hours'].rank(ascending=False)
         
         logger.info(f"Processed {len(df)} Pareto-optimal solutions")
         
@@ -237,16 +248,24 @@ class OptimizationAnalyzer:
     @staticmethod
     def calculate_hypervolume(F: np.ndarray, ref_point: np.ndarray) -> float:
         """Calculate hypervolume indicator"""
-        from pymoo.indicators.hv import HV
-        ind = HV(ref_point=ref_point)
-        return ind(F)
+        try:
+            from pymoo.indicators.hv import HV
+            ind = HV(ref_point=ref_point)
+            return ind(F)
+        except ImportError:
+            logger.warning("pymoo HV indicator not available")
+            return 0.0
     
     @staticmethod
     def calculate_igd(F: np.ndarray, pareto_front: np.ndarray) -> float:
         """Calculate Inverted Generational Distance"""
-        from pymoo.indicators.igd import IGD
-        ind = IGD(pareto_front)
-        return ind(F)
+        try:
+            from pymoo.indicators.igd import IGD
+            ind = IGD(pareto_front)
+            return ind(F)
+        except ImportError:
+            logger.warning("pymoo IGD indicator not available")
+            return 0.0
     
     @staticmethod
     def analyze_convergence(history) -> Dict:
@@ -256,22 +275,32 @@ class OptimizationAnalyzer:
         
         results = {
             'n_generations': len(history),
-            'final_pop_size': len(history[-1].pop),
             'convergence_metrics': []
         }
         
         # Track metrics over generations
         for gen, algo in enumerate(history):
-            if hasattr(algo, 'pop'):
+            if hasattr(algo, 'pop') and algo.pop is not None:
                 F = algo.pop.get('F')
-                metrics = {
-                    'generation': gen,
-                    'n_solutions': len(F),
-                    'best_cost': F[:, 0].min(),
-                    'best_recall': 1 - F[:, 1].min(),
-                    'avg_cost': F[:, 0].mean(),
-                    'avg_recall': 1 - F[:, 1].mean()
-                }
-                results['convergence_metrics'].append(metrics)
+                if F is not None:
+                    metrics = {
+                        'generation': gen,
+                        'n_solutions': len(F),
+                        'best_cost': F[:, 0].min(),
+                        'best_recall': 1 - F[:, 1].min(),
+                        'avg_cost': F[:, 0].mean(),
+                        'avg_recall': 1 - F[:, 1].mean()
+                    }
+                    
+                    # Add 6-objective metrics if available
+                    if F.shape[1] > 4:
+                        metrics['best_carbon'] = F[:, 4].min()
+                        metrics['avg_carbon'] = F[:, 4].mean()
+                    
+                    if F.shape[1] > 5:
+                        metrics['best_reliability'] = 1/F[:, 5].max() if F[:, 5].max() > 0 else 0
+                        metrics['avg_reliability'] = np.mean([1/x if x > 0 else 0 for x in F[:, 5]])
+                    
+                    results['convergence_metrics'].append(metrics)
         
         return results
