@@ -37,13 +37,42 @@ class ConfigManager:
     carbon_intensity_factor: float = 0.417
     
     # Constraints
-    max_energy_kwh_year: float = 100_000  # 从50000增加到100000
-    min_recall_threshold: float = 0.50  # 进一步从0.60降低到0.50
-    max_latency_seconds: float = 500.0  # 从300增加到500
-    max_disruption_hours: float = 500.0  # 从200增加到500
-    max_carbon_emissions_kgCO2e_year: float = 200_000  # 从100000增加到200000
-    min_mtbf_hours: float = 1_000  # 从3000降低到1000
+    min_recall_threshold: float = 0.70  # 恢复到更严格的值
+    max_latency_seconds: float = 180.0  
+    max_disruption_hours: float = 100.0
+    max_energy_kwh_year: float = 50_000
+    min_mtbf_hours: float = 5_000
+    max_carbon_emissions_kgCO2e_year: float = 100_000  # 新增
     
+    # Additional parameters for enhanced model
+    depreciation_rate: float = 0.1
+    apply_seasonal_adjustments: bool = True
+    fos_sensor_spacing_km: float = 0.1
+    traffic_volume_hourly: int = 2000
+    default_lane_closure_ratio: float = 0.3
+    carbon_intensity_factor: float = 0.417  # kg CO2/kWh
+
+    # Advanced parameters
+    class_imbalance_penalties: Dict[str, float] = field(default_factory=lambda: {
+        'Traditional': 0.05,
+        'ML': 0.02,
+        'DL': 0.01,
+        'PC': 0.03
+    })
+
+    network_quality_factors: Dict[str, Dict[str, float]] = field(default_factory=lambda: {
+        'rural': {'Fiber': 0.8, '5G': 0.7, '4G': 0.9, 'LoRaWAN': 1.0},
+        'urban': {'Fiber': 1.0, '5G': 1.0, '4G': 1.0, 'LoRaWAN': 0.9},
+        'mixed': {'Fiber': 0.9, '5G': 0.85, '4G': 0.95, 'LoRaWAN': 0.95}
+    })
+
+    redundancy_multipliers: Dict[str, float] = field(default_factory=lambda: {
+        'Cloud': 10.0,
+        'OnPremise': 1.5,
+        'Edge': 2.0,
+        'Hybrid': 5.0
+    })
+
     # Optimization parameters
     n_objectives: int = 6
     population_size: int = 200

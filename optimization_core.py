@@ -22,13 +22,37 @@ from pymoo.termination import get_termination
 logger = logging.getLogger(__name__)
 
 
+#!/usr/bin/env python3
+"""
+Core Optimization Module - NSGA-II/III Implementation
+Fixed version with proper NSGA-III configuration
+"""
+
+import numpy as np
+import pandas as pd
+import logging
+from typing import Tuple, Dict, List
+from dataclasses import dataclass
+
+from pymoo.algorithms.moo.nsga2 import NSGA2
+from pymoo.algorithms.moo.nsga3 import NSGA3
+from pymoo.core.problem import Problem
+from pymoo.operators.crossover.sbx import SBX
+from pymoo.operators.mutation.pm import PM
+from pymoo.operators.sampling.rnd import FloatRandomSampling
+from pymoo.optimize import minimize
+from pymoo.termination import get_termination
+
+logger = logging.getLogger(__name__)
+
+
 class RMTwinProblem(Problem):
     """Multi-objective optimization problem formulation with 6 objectives"""
     
-    def __init__(self, evaluator, n_objectives=6):
+    def __init__(self, evaluator, n_objectives=6):  # 改为6
         # Problem dimensions
         n_var = 11  # Decision variables
-        n_constr = 5  # Increased constraints for 6 objectives
+        n_constr = 5  # 5 constraints for 6 objectives
         
         # Variable bounds
         xl = np.zeros(n_var)
@@ -108,17 +132,23 @@ class RMTwinOptimizer:
             # Use NSGA-III for many objectives (4-6)
             from pymoo.util.ref_dirs import get_reference_directions
             
-            # Get reference directions
+            # Adjust partitions to ensure ref_dirs <= pop_size
             if self.config.n_objectives == 4:
-                ref_dirs = get_reference_directions("das-dennis", 4, n_partitions=12)
+                # 8 partitions gives 165 ref points
+                ref_dirs = get_reference_directions("das-dennis", 4, n_partitions=8)
             elif self.config.n_objectives == 5:
-                ref_dirs = get_reference_directions("das-dennis", 5, n_partitions=7)
+                # 5 partitions gives 126 ref points
+                ref_dirs = get_reference_directions("das-dennis", 5, n_partitions=5)
             else:  # 6 objectives
-                ref_dirs = get_reference_directions("das-dennis", 6, n_partitions=5)
+                # 3 partitions gives 84 ref points
+                ref_dirs = get_reference_directions("das-dennis", 6, n_partitions=3)
+            
+            # Ensure population size is at least as large as ref_dirs
+            pop_size = max(self.config.population_size, len(ref_dirs) + 50)
             
             algorithm = NSGA3(
                 ref_dirs=ref_dirs,
-                pop_size=self.config.population_size,
+                pop_size=pop_size,
                 sampling=FloatRandomSampling(),
                 crossover=SBX(eta=self.config.crossover_eta, 
                              prob=self.config.crossover_prob),
@@ -126,6 +156,9 @@ class RMTwinOptimizer:
                            prob=1.0/self.problem.n_var),
                 eliminate_duplicates=True
             )
+            
+            logger.info(f"NSGA-III configured with {len(ref_dirs)} reference directions "
+                       f"and population size {pop_size}")
         
         return algorithm
     
@@ -161,9 +194,20 @@ class RMTwinOptimizer:
     
     def _process_results(self, res) -> pd.DataFrame:
         """Convert optimization results to DataFrame"""
-        if res.X is None:
-            logger.warning("No solutions found!")
-            return pd.DataFrame()
+        if res.X is None or (hasattr(res.X, '__len__') and len(res.X) == 0):
+            logger.warning("No feasible solutions found! Check constraints.")
+            # Return empty DataFrame with expected columns
+            return pd.DataFrame(columns=[
+                'solution_id', 'sensor', 'algorithm', 'data_rate_Hz',
+                'geometric_LOD', 'condition_LOD', 'detection_threshold',
+                'storage', 'communication', 'deployment', 'crew_size',
+                'inspection_cycle_days', 'f1_total_cost_USD', 'f2_one_minus_recall',
+                'f3_latency_seconds', 'f4_traffic_disruption_hours',
+                'f5_carbon_emissions_kgCO2e_year', 'f6_system_reliability_inverse_MTBF',
+                'detection_recall', 'system_MTBF_hours', 'system_MTBF_years',
+                'annual_cost_USD', 'cost_per_km_year', 'carbon_footprint_tons_CO2_year',
+                'is_feasible'
+            ])
         
         # Ensure arrays are 2D
         X = res.X if res.X.ndim == 2 else res.X.reshape(1, -1)
@@ -225,22 +269,23 @@ class RMTwinOptimizer:
         
         # Convert to DataFrame
         df = pd.DataFrame(results)
-        df = df.sort_values('f1_total_cost_USD')
-        
-        # Add rankings
-        df['cost_rank'] = df['f1_total_cost_USD'].rank()
-        df['recall_rank'] = df['detection_recall'].rank(ascending=False)
-        
-        if 'f5_carbon_emissions_kgCO2e_year' in df.columns:
-            df['carbon_rank'] = df['f5_carbon_emissions_kgCO2e_year'].rank()
-        
-        if 'system_MTBF_hours' in df.columns:
-            df['reliability_rank'] = df['system_MTBF_hours'].rank(ascending=False)
+        if len(df) > 0:
+            df = df.sort_values('f1_total_cost_USD')
+            
+            # Add rankings
+            df['cost_rank'] = df['f1_total_cost_USD'].rank()
+            df['recall_rank'] = df['detection_recall'].rank(ascending=False)
+            
+            if 'f5_carbon_emissions_kgCO2e_year' in df.columns:
+                df['carbon_rank'] = df['f5_carbon_emissions_kgCO2e_year'].rank()
+            
+            if 'system_MTBF_hours' in df.columns:
+                df['reliability_rank'] = df['system_MTBF_hours'].rank(ascending=False)
         
         logger.info(f"Processed {len(df)} Pareto-optimal solutions")
         
         return df
-
+    
 
 class OptimizationAnalyzer:
     """Analyze optimization results"""

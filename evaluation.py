@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Enhanced Fitness Evaluation Module V3
-6-objective optimization with ProcessPoolExecutor
+Enhanced Fitness Evaluation Module V4 - 6 Objectives
+Integrates sustainability and reliability metrics
 """
 
 import numpy as np
@@ -55,32 +55,22 @@ class SolutionMapper:
                 elif 'ComputeDeployment' in object_str or 'Deployment' in object_str:
                     self.deployments.append(subject_str)
         
-        # Remove duplicates
-        self.sensors = list(set(self.sensors))
-        self.algorithms = list(set(self.algorithms))
-        self.storage_systems = list(set(self.storage_systems))
-        self.comm_systems = list(set(self.comm_systems))
-        self.deployments = list(set(self.deployments))
-        
-        # Ensure we have at least some components
-        if not self.sensors:
-            self.sensors = ["http://example.org/rmtwin#MMS_LiDAR_Riegl_VUX1HA"]
-        if not self.algorithms:
-            self.algorithms = ["http://example.org/rmtwin#DL_YOLOv5s_Enhanced"]
-        if not self.storage_systems:
-            self.storage_systems = ["http://example.org/rmtwin#Storage_Cloud_AWS_S3"]
-        if not self.comm_systems:
-            self.comm_systems = ["http://example.org/rmtwin#Communication_5G_Network"]
-        if not self.deployments:
-            self.deployments = ["http://example.org/rmtwin#Deployment_Cloud_Computing"]
+        # Remove duplicates and ensure we have components
+        self.sensors = list(set(self.sensors)) or ["http://example.org/rmtwin#MMS_LiDAR_Riegl_VUX1HA"]
+        self.algorithms = list(set(self.algorithms)) or ["http://example.org/rmtwin#DL_YOLOv5s_Enhanced"]
+        self.storage_systems = list(set(self.storage_systems)) or ["http://example.org/rmtwin#Storage_Cloud_AWS_S3"]
+        self.comm_systems = list(set(self.comm_systems)) or ["http://example.org/rmtwin#Communication_5G_Network"]
+        self.deployments = list(set(self.deployments)) or ["http://example.org/rmtwin#Deployment_Cloud_Computing"]
         
         logger.info(f"Cached components: {len(self.sensors)} sensors, "
                    f"{len(self.algorithms)} algorithms, {len(self.storage_systems)} storage, "
                    f"{len(self.comm_systems)} communication, {len(self.deployments)} deployment")
     
-    def decode_solution(self, x: np.ndarray) -> Dict:
-        """Decode solution vector to configuration"""
-        x = x.flatten() if isinstance(x, np.ndarray) else x
+    @lru_cache(maxsize=10000)
+    def decode_solution(self, x_tuple: tuple) -> Dict:
+        """Decode solution vector to configuration with caching"""
+        # Convert tuple back to array for processing
+        x = np.array(x_tuple)
         
         config = {
             'sensor': self.sensors[int(x[0] * len(self.sensors)) % len(self.sensors)],
@@ -111,10 +101,10 @@ def _evaluate_single_wrapper(args):
     mapper.comm_systems = mapper_data['comm_systems']
     mapper.deployments = mapper_data['deployments']
     
-    # Decode configuration
-    config = mapper.decode_solution(x)
+    # Decode configuration (convert to tuple for caching)
+    config = mapper.decode_solution(tuple(x))
     
-    # Create a simple evaluator for calculation
+    # Create evaluator for calculation
     evaluator = SimpleEvaluator(property_cache, config_dict)
     
     # Calculate objectives
@@ -140,12 +130,12 @@ class SimpleEvaluator:
     
     def calculate_all_objectives(self, config: Dict) -> np.ndarray:
         """Calculate all 6 objectives"""
-        f1 = self._calculate_total_cost_v2(config)
-        f2 = self._calculate_detection_performance_v2(config)
-        f3 = self._calculate_latency_v2(config)
-        f4 = self._calculate_traffic_disruption_v2(config)
-        f5 = self._calculate_environmental_impact_v2(config)
-        f6 = self._calculate_system_reliability_v2(config)
+        f1 = self._calculate_total_cost_enhanced(config)
+        f2 = self._calculate_detection_performance_enhanced(config)
+        f3 = self._calculate_latency_enhanced(config)
+        f4 = self._calculate_traffic_disruption_enhanced(config)
+        f5 = self._calculate_environmental_impact(config)
+        f6 = self._calculate_system_reliability(config)
         
         return np.array([f1, f2, f3, f4, f5, f6])
     
@@ -154,47 +144,43 @@ class SimpleEvaluator:
         f1, f2, f3, f4, f5, f6 = objectives
         recall = 1 - f2
         
+        # Get constraint limits from config
+        max_latency = self.config.get('max_latency_seconds', 300.0)
+        min_recall = self.config.get('min_recall_threshold', 0.60)
+        budget_cap = self.config.get('budget_cap_usd', 20_000_000)
+        max_carbon = self.config.get('max_carbon_emissions_kgCO2e_year', 100_000)
+        min_mtbf = self.config.get('min_mtbf_hours', 3_000)
+        
         constraints = np.array([
-                f3 - self.config['max_latency_seconds'],  # Max latency
-                self.config['min_recall_threshold'] - recall,  # Min recall
-                f1 - self.config['budget_cap_usd'],  # Budget
-                f5 - self.config.get('max_carbon_emissions_kgCO2e_year', 100000),  # Max carbon
-                self.config.get('min_mtbf_hours', 3000) - (1/f6 if f6 > 0 else 1e6)  # Min MTBF
-            ])
-            
-            # Debug logging for first few evaluations (optional)
-            # if hasattr(self, '_debug_count'):
-            #     self._debug_count += 1
-            # else:
-            #     self._debug_count = 1
-            
-            # if self._debug_count <= 10:
-            #     logger.debug(f"Objectives: cost={f1:.0f}, recall={recall:.3f}, "
-            #                 f"latency={f3:.1f}, disruption={f4:.1f}, "
-            #                 f"carbon={f5:.0f}, mtbf={1/f6 if f6>0 else 1e6:.0f}")
-            #     logger.debug(f"Constraints: {constraints}")
-            
+            f3 - max_latency,  # Max latency
+            min_recall - recall,  # Min recall
+            f1 - budget_cap,  # Budget
+            f5 - max_carbon,  # Max carbon emissions
+            min_mtbf - (1/f6 if f6 > 0 else 1e6)  # Min MTBF
+        ])
+        
         return constraints
     
-    def _calculate_total_cost_v2(self, config: Dict) -> float:
-        """Enhanced cost calculation including all factors"""
+    def _calculate_total_cost_enhanced(self, config: Dict) -> float:
+        """Enhanced cost calculation with all factors from original code"""
         sensor_name = str(config['sensor']).split('#')[-1]
         
-        # Initial investment
+        # Initial investment costs
         sensor_initial_cost = self._query_property(
             config['sensor'], 'hasInitialCostUSD', 100000)
         
-        # Special handling for FOS
+        # Special handling for FOS sensors
         if 'FOS' in sensor_name or 'Fiber' in sensor_name:
             sensor_spacing_km = self.config.get('fos_sensor_spacing_km', 0.1)
-            sensors_needed = self.config['road_network_length_km'] / sensor_spacing_km
+            road_length = self.config.get('road_network_length_km', 100)
+            sensors_needed = road_length / sensor_spacing_km
             actual_sensor_cost = sensor_initial_cost * sensors_needed
             installation_cost = 5000 * sensors_needed
             total_sensor_initial = actual_sensor_cost + installation_cost
         else:
             total_sensor_initial = sensor_initial_cost
         
-        # Other components
+        # Other component costs
         storage_initial = self._query_property(config['storage'], 'hasInitialCostUSD', 0)
         comm_initial = self._query_property(config['communication'], 'hasInitialCostUSD', 0)
         deployment_initial = self._query_property(config['deployment'], 'hasInitialCostUSD', 0)
@@ -203,7 +189,7 @@ class SimpleEvaluator:
         total_initial_investment = (total_sensor_initial + storage_initial + 
                                   comm_initial + deployment_initial + algo_initial)
         
-        # Annual operational costs
+        # Annual operational costs with depreciation
         depreciation_rate = self.config.get('depreciation_rate', 0.1)
         annual_capital_cost = total_initial_investment * depreciation_rate
         
@@ -213,19 +199,21 @@ class SimpleEvaluator:
         coverage_km_day = self._query_property(
             config['sensor'], 'hasCoverageEfficiencyKmPerDay', 80)
         
+        road_length = self.config.get('road_network_length_km', 100)
+        
         if coverage_km_day > 0:  # Mobile sensor
             inspections_per_year = 365 / config['inspection_cycle']
-            days_per_inspection = self.config['road_network_length_km'] / coverage_km_day
+            days_per_inspection = road_length / coverage_km_day
             sensor_annual_operational = sensor_daily_cost * days_per_inspection * inspections_per_year
         else:  # Fixed sensor
             if 'FOS' in sensor_name:
                 operational_cost_per_sensor_day = 0.5
-                sensors_needed = self.config['road_network_length_km'] / sensor_spacing_km
+                sensors_needed = road_length / sensor_spacing_km
                 sensor_annual_operational = operational_cost_per_sensor_day * sensors_needed * 365
             else:
                 sensor_annual_operational = sensor_daily_cost * 365
         
-        # Other operational costs
+        # Infrastructure operational costs
         storage_annual = self._query_property(config['storage'], 'hasAnnualOpCostUSD', 5000)
         comm_annual = self._query_property(config['communication'], 'hasAnnualOpCostUSD', 2000)
         deployment_annual = self._query_property(config['deployment'], 'hasAnnualOpCostUSD', 10000)
@@ -236,7 +224,7 @@ class SimpleEvaluator:
             'Basic': 1.0, 'Intermediate': 1.5, 'Expert': 2.0
         }.get(str(skill_level), 1.0)
         
-        daily_wage = self.config['daily_wage_per_person'] * skill_multiplier
+        daily_wage = self.config.get('daily_wage_per_person', 1500) * skill_multiplier
         
         if coverage_km_day > 0:
             crew_annual_cost = (config['crew_size'] * daily_wage * 
@@ -245,15 +233,16 @@ class SimpleEvaluator:
             maintenance_days = 10 if 'FOS' in sensor_name else 20
             crew_annual_cost = config['crew_size'] * daily_wage * maintenance_days
         
-        # Data annotation costs (for DL algorithms)
+        # Data annotation costs for ML/DL algorithms
         data_annotation_annual = 0
-        if 'DL' in str(config['algorithm']) or 'Deep' in str(config['algorithm']):
+        algo_name = str(config['algorithm']).split('#')[-1]
+        if 'DL' in algo_name or 'Deep' in algo_name or 'ML' in algo_name:
             annotation_cost = self._query_property(
                 config['algorithm'], 'hasDataAnnotationCostUSD', 0.5)
             
             if 'Camera' in sensor_name:
                 images_per_km = 100
-                annual_images = images_per_km * self.config['road_network_length_km'] * inspections_per_year
+                annual_images = images_per_km * road_length * inspections_per_year
             else:
                 annual_images = 10000
             
@@ -261,12 +250,11 @@ class SimpleEvaluator:
         
         # Model retraining costs
         retrain_freq = self._query_property(config['algorithm'], 'hasModelRetrainingFreqMonths', 12)
-        if retrain_freq > 0:
+        model_retraining_annual = 0
+        if retrain_freq and retrain_freq > 0:
             retrainings_per_year = 12 / retrain_freq
             retraining_cost = 5000  # Base retraining cost
             model_retraining_annual = retraining_cost * retrainings_per_year
-        else:
-            model_retraining_annual = 0
         
         # Total annual cost
         total_annual_cost = (annual_capital_cost + sensor_annual_operational + 
@@ -279,20 +267,29 @@ class SimpleEvaluator:
             seasonal_adjustment = 0.25  # 25% of operations in winter
             total_annual_cost *= (1 + (winter_factor - 1) * seasonal_adjustment)
         
+        # Apply soft constraint penalties
+        if config['crew_size'] > 5:
+            total_annual_cost += (config['crew_size'] - 5) * 50000
+        
+        if config['inspection_cycle'] < 7:  # Urgent scheduling
+            total_annual_cost *= 1.5  # Overtime multiplier
+        
         # Total lifecycle cost
-        total_lifecycle_cost = total_annual_cost * self.config['planning_horizon_years']
+        planning_horizon = self.config.get('planning_horizon_years', 10)
+        total_lifecycle_cost = total_annual_cost * planning_horizon
         
         return total_lifecycle_cost
     
-    def _calculate_detection_performance_v2(self, config: Dict) -> float:
-        """Enhanced detection performance calculation"""
+    def _calculate_detection_performance_enhanced(self, config: Dict) -> float:
+        """Enhanced detection performance with all factors"""
         base_recall = self._query_property(config['algorithm'], 'hasRecall', 0.7)
         
         # Sensor accuracy impact
         accuracy_mm = self._query_property(config['sensor'], 'hasAccuracyRangeMM', 10)
         accuracy_factor = 1 - (accuracy_mm / 100)
+        base_recall *= (0.8 + 0.2 * accuracy_factor)
         
-        # LOD impact with more nuanced factors
+        # LOD impact with nuanced factors
         lod_factors = {
             'Micro': {'factor': 1.15, 'threshold_adj': 0.05},
             'Meso': {'factor': 1.0, 'threshold_adj': 0},
@@ -300,11 +297,12 @@ class SimpleEvaluator:
         }
         
         lod_data = lod_factors.get(config['geo_lod'], lod_factors['Meso'])
-        lod_factor = lod_data['factor']
+        base_recall *= lod_data['factor']
         
         # Detection threshold impact
         threshold_optimal = 0.5
         threshold_penalty = abs(config['detection_threshold'] - threshold_optimal) * 0.1
+        base_recall -= threshold_penalty
         
         # Algorithm-specific adjustments
         algo_name = str(config['algorithm']).split('#')[-1]
@@ -320,25 +318,24 @@ class SimpleEvaluator:
                 penalty = pen_value
                 break
         
+        base_recall -= penalty
+        
         # Hardware requirements impact
         hardware_req = self._query_property(config['algorithm'], 'hasHardwareRequirement', 'CPU')
         if 'HighEnd_GPU' in str(hardware_req):
-            # High-end GPU enables better performance
-            hardware_bonus = 0.02
-        else:
-            hardware_bonus = 0
+            base_recall += 0.02  # High-end GPU enables better performance
         
-        # Calculate final recall
-        final_recall = (base_recall * accuracy_factor * lod_factor + 
-                       hardware_bonus - penalty - threshold_penalty)
+        # Algorithm precision consideration
+        precision = self._query_property(config['algorithm'], 'hasPrecision', 0.8)
+        base_recall *= (0.9 + 0.1 * precision)
         
-        # Add noise for realism
-        noise = np.random.normal(0, 0.01)
-        final_recall += noise
+        # Add small random noise for realism
+        noise = np.random.normal(0, 0.005)
+        base_recall += noise
         
-        return 1 - np.clip(final_recall, 0.01, 0.99)
+        return 1 - np.clip(base_recall, 0.01, 0.99)  # Return 1-recall for minimization
     
-    def _calculate_latency_v2(self, config: Dict) -> float:
+    def _calculate_latency_enhanced(self, config: Dict) -> float:
         """Enhanced latency calculation with detailed modeling"""
         # Data acquisition time
         data_rate = config['data_rate']
@@ -350,7 +347,7 @@ class SimpleEvaluator:
         lod_multipliers = {'Micro': 2.0, 'Meso': 1.0, 'Macro': 0.5}
         data_gb = base_data_gb * lod_multipliers.get(config['geo_lod'], 1.0)
         
-        # Communication latency
+        # Communication latency with realistic bandwidths
         comm_type = str(config['communication']).split('#')[-1]
         comm_specs = {
             'Communication_5G_Network': {'bandwidth': 1000, 'latency': 0.01},
@@ -369,6 +366,7 @@ class SimpleEvaluator:
             'mixed': {'Fiber': 0.9, '5G': 0.85, '4G': 0.95, 'LoRaWAN': 0.95}
         })
         
+        # Determine technology type
         tech = None
         for t in ['Fiber', '5G', '4G', 'LoRaWAN']:
             if t in comm_type:
@@ -389,25 +387,27 @@ class SimpleEvaluator:
         algo_fps = self._query_property(config['algorithm'], 'hasFPS', 10)
         base_proc_time = 1 / algo_fps if algo_fps > 0 else 0.1
         
-        # Deployment impact
+        # Deployment impact with detailed factors
+        deploy_type = str(config['deployment']).split('#')[-1]
         deploy_factors = {
-            'Edge': {'factor': 1.5, 'overhead': 0.02},
-            'Cloud': {'factor': 1.0, 'overhead': 0.05},
-            'Hybrid': {'factor': 1.2, 'overhead': 0.03},
-            'OnPremise': {'factor': 1.3, 'overhead': 0.01}
+            'Deployment_Edge_Computing': {'factor': 1.5, 'overhead': 0.02},
+            'Deployment_Cloud_Computing': {'factor': 1.0, 'overhead': 0.05},
+            'Deployment_Hybrid_Edge_Cloud': {'factor': 1.2, 'overhead': 0.03},
+            'Deployment_OnPremise_Server': {'factor': 1.3, 'overhead': 0.01}
         }
         
-        deploy_type = config['deployment'].split('_')[-1]
         deploy_data = deploy_factors.get(deploy_type, {'factor': 1.0, 'overhead': 0.05})
-        
         proc_time = base_proc_time * deploy_data['factor'] + deploy_data['overhead']
         
+        # Queue waiting time (based on system load)
+        queue_time = np.random.exponential(0.5)  # Average 0.5s queue time
+        
         # Total latency
-        total_latency = acq_time + network_latency + comm_time + proc_time
+        total_latency = acq_time + network_latency + comm_time + proc_time + queue_time
         
         return total_latency
     
-    def _calculate_traffic_disruption_v2(self, config: Dict) -> float:
+    def _calculate_traffic_disruption_enhanced(self, config: Dict) -> float:
         """Enhanced traffic disruption calculation"""
         # Base disruption per inspection
         base_disruption = 4.0  # hours
@@ -423,8 +423,8 @@ class SimpleEvaluator:
             # Fixed sensors - disruption only during installation/maintenance
             disruption_factor = 0.05
         elif speed > 0:
-            # Mobile sensors - disruption based on speed
-            speed_factor = 80 / speed if speed < 80 else 1.0
+            # Mobile sensors - disruption based on speed relative to traffic flow
+            speed_factor = max(0.1, min(2.0, 80 / speed))
             disruption_factor = speed_factor
         else:
             disruption_factor = 1.0
@@ -437,7 +437,16 @@ class SimpleEvaluator:
             maintenance_visits = 4  # Quarterly maintenance
             annual_disruption = base_disruption * disruption_factor * maintenance_visits
         else:
-            annual_disruption = base_disruption * disruption_factor * inspections_per_year
+            # Mobile sensors
+            road_length = self.config.get('road_network_length_km', 100)
+            coverage_per_day = self._query_property(
+                config['sensor'], 'hasCoverageEfficiencyKmPerDay', 80)
+            
+            if coverage_per_day > 0:
+                days_per_inspection = road_length / coverage_per_day
+                annual_disruption = base_disruption * disruption_factor * days_per_inspection * inspections_per_year
+            else:
+                annual_disruption = base_disruption * disruption_factor * inspections_per_year
         
         # Traffic volume impact
         traffic_volume = self.config.get('traffic_volume_hourly', 2000)
@@ -452,12 +461,15 @@ class SimpleEvaluator:
         night_impact_reduction = 0.7  # 70% reduction in impact for night work
         time_factor = 1 - (night_work_ratio * night_impact_reduction)
         
+        # Crew size impact (larger crews work faster but cause more disruption)
+        crew_factor = 1 + (config['crew_size'] - 3) * 0.1
+        
         # Total disruption
-        total_disruption = annual_disruption * lane_factor * traffic_factor * time_factor
+        total_disruption = annual_disruption * lane_factor * traffic_factor * time_factor * crew_factor
         
         return total_disruption
     
-    def _calculate_environmental_impact_v2(self, config: Dict) -> float:
+    def _calculate_environmental_impact(self, config: Dict) -> float:
         """Calculate environmental impact in kgCO2e/year (f5)"""
         # Energy consumption from components
         total_power_w = 0
@@ -465,19 +477,30 @@ class SimpleEvaluator:
         for comp in ['sensor', 'storage', 'communication', 'deployment']:
             if comp in config:
                 power = self._query_property(config[comp], 'hasEnergyConsumptionW', 0)
-                total_power_w += power if power else 0
+                if power:
+                    total_power_w += power
+        
+        # Algorithm computational requirements
+        algo_name = str(config['algorithm']).split('#')[-1]
+        if 'DL' in algo_name or 'Deep' in algo_name:
+            total_power_w += 250  # Deep learning requires more compute
+        elif 'ML' in algo_name:
+            total_power_w += 100
+        else:
+            total_power_w += 50
         
         # Operating hours calculation
         coverage = self._query_property(config['sensor'], 'hasCoverageEfficiencyKmPerDay', 80)
+        road_length = self.config.get('road_network_length_km', 100)
         
         if coverage > 0:
             # Mobile sensor operation
             inspections_per_year = 365 / config['inspection_cycle']
-            days_per_inspection = self.config['road_network_length_km'] / coverage
+            days_per_inspection = road_length / coverage
             sensor_hours = days_per_inspection * inspections_per_year * 8  # 8 hours/day
             
             # Vehicle emissions
-            vehicle_km = self.config['road_network_length_km'] * inspections_per_year
+            vehicle_km = road_length * inspections_per_year
             vehicle_fuel_l = vehicle_km * 0.08  # 8L/100km fuel consumption
             vehicle_emissions_kg = vehicle_fuel_l * 2.31  # 2.31 kg CO2/L gasoline
         else:
@@ -497,17 +520,23 @@ class SimpleEvaluator:
         carbon_intensity = self.config.get('carbon_intensity_factor', 0.417)  # kg CO2/kWh
         electricity_emissions_kg = total_energy_kwh * carbon_intensity
         
-        # Manufacturing emissions (amortized)
+        # Manufacturing emissions (amortized over lifetime)
         equipment_cost = self._query_property(config['sensor'], 'hasInitialCostUSD', 100000)
         manufacturing_emissions = equipment_cost * 0.001  # Rough estimate: 1 kg CO2/$1000
         annual_manufacturing = manufacturing_emissions / 10  # 10-year lifespan
         
-        # Total emissions
-        total_emissions = electricity_emissions_kg + vehicle_emissions_kg + annual_manufacturing
+        # Data storage emissions
+        data_volume_gb = self._query_property(config['sensor'], 'hasDataVolumeGBPerKm', 1.0)
+        annual_data_gb = data_volume_gb * road_length * (365 / config['inspection_cycle'])
+        storage_emissions_kg = annual_data_gb * 0.01  # 0.01 kg CO2/GB stored
+        
+        # Total emissions in kgCO2e/year
+        total_emissions = (electricity_emissions_kg + vehicle_emissions_kg + 
+                          annual_manufacturing + storage_emissions_kg)
         
         return total_emissions
     
-    def _calculate_system_reliability_v2(self, config: Dict) -> float:
+    def _calculate_system_reliability(self, config: Dict) -> float:
         """Calculate system reliability as 1/MTBF (f6)"""
         # Component reliability (series system model)
         component_mtbfs = []
@@ -516,37 +545,49 @@ class SimpleEvaluator:
             if comp in config:
                 base_mtbf = self._query_property(config[comp], 'hasMTBFHours', 10000)
                 
-                # Apply redundancy factors based on deployment type
-                comp_type = str(config[comp]).split('#')[-1]
-                
-                redundancy_multipliers = self.config.get('redundancy_multipliers', {
-                    'Cloud': 10.0,      # High redundancy
-                    'OnPremise': 1.5,   # Some redundancy
-                    'Edge': 2.0,        # Moderate redundancy
-                    'Hybrid': 5.0       # Good redundancy
-                })
-                
-                redundancy = 1.0
-                for red_type, mult in redundancy_multipliers.items():
-                    if red_type in comp_type:
-                        redundancy = mult
-                        break
-                
-                # Environmental factors
-                if 'outdoor' in str(self._query_property(config[comp], 'hasEnvironment', '')).lower():
-                    environmental_factor = 0.8  # 20% reduction for outdoor equipment
-                else:
-                    environmental_factor = 1.0
-                
-                effective_mtbf = base_mtbf * redundancy * environmental_factor
-                
-                if effective_mtbf > 0:
+                if base_mtbf and base_mtbf > 0:
+                    # Apply redundancy factors based on deployment type
+                    comp_type = str(config[comp]).split('#')[-1]
+                    
+                    redundancy_multipliers = self.config.get('redundancy_multipliers', {
+                        'Cloud': 10.0,      # High redundancy
+                        'OnPremise': 1.5,   # Some redundancy
+                        'Edge': 2.0,        # Moderate redundancy
+                        'Hybrid': 5.0       # Good redundancy
+                    })
+                    
+                    redundancy = 1.0
+                    for red_type, mult in redundancy_multipliers.items():
+                        if red_type in comp_type:
+                            redundancy = mult
+                            break
+                    
+                    # Environmental factors
+                    if comp == 'sensor':
+                        # Outdoor sensors have reduced reliability
+                        environmental_factor = 0.8
+                    else:
+                        environmental_factor = 1.0
+                    
+                    # Maintenance impact
+                    calibration_freq = self._query_property(
+                        config[comp], 'hasCalibrationFreqMonths', 12)
+                    if calibration_freq and calibration_freq > 0:
+                        maintenance_factor = min(1.2, 1 + (12 / calibration_freq) * 0.1)
+                    else:
+                        maintenance_factor = 1.0
+                    
+                    effective_mtbf = base_mtbf * redundancy * environmental_factor * maintenance_factor
                     component_mtbfs.append(effective_mtbf)
         
         # Algorithm reliability (software)
         algo_mtbf = self._query_property(config['algorithm'], 'hasMTBFHours', 50000)
-        if algo_mtbf > 0:
-            component_mtbfs.append(algo_mtbf)
+        if algo_mtbf and algo_mtbf > 0:
+            # Software reliability affected by complexity
+            explainability = self._query_property(
+                config['algorithm'], 'hasExplainabilityScore', 3)
+            complexity_factor = 0.7 + (explainability / 5) * 0.3 if explainability else 1.0
+            component_mtbfs.append(algo_mtbf * complexity_factor)
         
         # System MTBF calculation (series system)
         if component_mtbfs:
@@ -557,13 +598,26 @@ class SimpleEvaluator:
             common_cause_rate = 1 / (365 * 24 * 10)  # Once per 10 years
             inverse_mtbf_sum += common_cause_rate
             
+            # Add human error factor based on crew size and skill
+            skill_level = self._query_property(config['sensor'], 'hasOperatorSkillLevel', 'Basic')
+            human_error_rates = {
+                'Basic': 1 / (365 * 24 * 0.5),  # Error every 6 months
+                'Intermediate': 1 / (365 * 24 * 1),  # Error every year
+                'Expert': 1 / (365 * 24 * 2)  # Error every 2 years
+            }
+            human_error_rate = human_error_rates.get(str(skill_level), human_error_rates['Basic'])
+            
+            # Crew size impact (more people = more potential for error)
+            crew_factor = 1 + (config['crew_size'] - 1) * 0.1
+            inverse_mtbf_sum += human_error_rate * crew_factor
+            
             return inverse_mtbf_sum
         else:
             return 1e-6  # Default to very high reliability if no data
 
 
-class EnhancedFitnessEvaluatorV2:
-    """Enhanced fitness evaluator with 6 objectives and process pool support"""
+class EnhancedFitnessEvaluatorV3:
+    """Enhanced fitness evaluator with 6 objectives and parallel processing"""
     
     def __init__(self, ontology_graph: Graph, config):
         self.g = ontology_graph
@@ -572,6 +626,16 @@ class EnhancedFitnessEvaluatorV2:
         
         # Component property cache
         self._property_cache = {}
+        
+        # Normalization parameters for 6 objectives
+        self.norm_params = {
+            'cost': {'min': 100_000, 'max': 20_000_000},
+            'recall': {'min': 0.0, 'max': 0.4},  # 1-recall
+            'latency': {'min': 0.1, 'max': 500.0},
+            'disruption': {'min': 0.0, 'max': 500.0},
+            'environmental': {'min': 1_000, 'max': 200_000},  # kgCO2e/year
+            'reliability': {'min': 0.0, 'max': 0.001}  # 1/MTBF
+        }
         
         # Pre-cache all properties at initialization
         self._initialize_cache()
@@ -672,8 +736,8 @@ class EnhancedFitnessEvaluatorV2:
                     except Exception as e:
                         logger.error(f"Error evaluating solution {idx}: {e}")
                         # Set high penalty values
-                        objectives[idx] = np.array([1e10, 1, 1000, 1000, 100000, 1])
-                        constraints[idx] = np.array([1000, 1, 1e10, 50000, -1000])
+                        objectives[idx] = np.array([1e10, 1, 1000, 1000, 200000, 1])
+                        constraints[idx] = np.array([1000, 1, 1e10, 100000, -1000])
         else:
             # Sequential evaluation for small batches
             for i, x in enumerate(X):
@@ -682,8 +746,8 @@ class EnhancedFitnessEvaluatorV2:
                     objectives[i], constraints[i] = _evaluate_single_wrapper(args)
                 except Exception as e:
                     logger.error(f"Error evaluating solution {i}: {e}")
-                    objectives[i] = np.array([1e10, 1, 1000, 1000, 100000, 1])
-                    constraints[i] = np.array([1000, 1, 1e10, 50000, -1000])
+                    objectives[i] = np.array([1e10, 1, 1000, 1000, 200000, 1])
+                    constraints[i] = np.array([1000, 1, 1e10, 100000, -1000])
         
         # Update statistics
         self._evaluation_count += n_solutions
