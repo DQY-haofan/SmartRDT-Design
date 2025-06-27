@@ -96,9 +96,6 @@ class ConfigManager:
         """Initialize configuration from file if exists"""
         self.config_file = config_file
         
-        # Set default values
-        self._set_defaults()
-        
         # Load from file if exists
         if Path(config_file).exists():
             self.load_from_file(config_file)
@@ -109,11 +106,7 @@ class ConfigManager:
         # Create directories
         self._create_directories()
     
-    def _set_defaults(self):
-        """Set any computed default values"""
-        import multiprocessing as mp
-        if self.n_processes == -1:
-            self.n_processes = max(1, mp.cpu_count() - 1)
+    # def _set_defaults method removed - merged into _process_config
     
     def load_from_file(self, filepath: str):
         """Load configuration from JSON file"""
@@ -140,6 +133,11 @@ class ConfigManager:
     
     def _process_config(self):
         """Process and validate configuration"""
+        # Set computed defaults first
+        import multiprocessing as mp
+        if self.n_processes == -1:
+            self.n_processes = max(1, mp.cpu_count() - 1)
+            
         # Ensure paths are Path objects
         self.output_dir = Path(self.output_dir)
         self.log_dir = Path(self.log_dir)

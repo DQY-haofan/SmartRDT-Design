@@ -19,7 +19,8 @@ from pymoo.operators.sampling.rnd import FloatRandomSampling
 from pymoo.optimize import minimize
 from pymoo.termination import get_termination
 
-from evaluation import EnhancedFitnessEvaluatorV2
+# Import will be done after module is loaded to avoid circular import
+# from evaluation import EnhancedFitnessEvaluatorV2
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,9 @@ class RMTwinOptimizer:
     def __init__(self, ontology_graph, config):
         self.ontology_graph = ontology_graph
         self.config = config
+        
+        # Import here to avoid circular import
+        from evaluation import EnhancedFitnessEvaluatorV2
         
         # Initialize evaluator
         self.evaluator = EnhancedFitnessEvaluatorV2(ontology_graph, config)

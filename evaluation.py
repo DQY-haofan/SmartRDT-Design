@@ -1,273 +1,494 @@
 #!/usr/bin/env python3
 """
-Core Optimization Module - NSGA-II Implementation
-Complete functionality from original framework
+Enhanced Fitness Evaluation Module V2
+Complete implementation with all advanced features
 """
 
 import numpy as np
 import pandas as pd
-import logging
-from typing import Tuple, Dict, List
+from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import dataclass
-
-from pymoo.algorithms.moo.nsga2 import NSGA2
-from pymoo.algorithms.moo.nsga3 import NSGA3
-from pymoo.core.problem import Problem
-from pymoo.operators.crossover.sbx import SBX
-from pymoo.operators.mutation.pm import PM
-from pymoo.operators.sampling.rnd import FloatRandomSampling
-from pymoo.optimize import minimize
-from pymoo.termination import get_termination
-
-from evaluation import EnhancedFitnessEvaluatorV2
+import logging
+from functools import lru_cache
+from concurrent.futures import ThreadPoolExecutor
+from rdflib import Graph, Namespace, URIRef
+from rdflib.namespace import RDFS, RDF, OWL, XSD
 
 logger = logging.getLogger(__name__)
 
+RDTCO = Namespace("http://www.semanticweb.org/rmtwin/ontologies/rdtco#")
+EX = Namespace("http://example.org/rmtwin#")
 
-class RMTwinProblem(Problem):
-    """Multi-objective optimization problem formulation"""
+
+class SolutionMapper:
+    """Maps between optimization variables and RMTwin configurations"""
     
-    def __init__(self, evaluator, n_objectives=6):
-        # Problem dimensions
-        n_var = 11  # Decision variables
-        n_constr = 3  # Constraints
+    def __init__(self, ontology_graph: Graph):
+        self.g = ontology_graph
+        self._cache_components()
         
-        # Variable bounds
-        xl = np.zeros(n_var)
-        xu = np.ones(n_var)
+    def _cache_components(self):
+        """Cache all available components from ontology"""
+        self.sensors = []
+        self.algorithms = []
+        self.storage_systems = []
+        self.comm_systems = []
+        self.deployments = []
         
-        super().__init__(
-            n_var=n_var,
-            n_obj=n_objectives,
-            n_constr=n_constr,
-            xl=xl,
-            xu=xu
-        )
+        logger.info("Caching components from ontology...")
         
-        self.evaluator = evaluator
-        self._eval_count = 0
-        
-    def _evaluate(self, X, out, *args, **kwargs):
-        """Evaluate population"""
-        objectives, constraints = self.evaluator.evaluate_batch(X)
-        
-        out["F"] = objectives
-        out["G"] = constraints
-        
-        # Log progress
-        self._eval_count += len(X)
-        if self._eval_count % 1000 == 0:
-            logger.info(f"Evaluated {self._eval_count} solutions...")
+        # Query for all instances
+        for s, p, o in self.g:
+            subject_str = str(s)
+            object_str = str(o)
             
-            # Log current best values
-            best_indices = {
-                'cost': objectives[:, 0].argmin(),
-                'recall': objectives[:, 1].argmin(),
-                'latency': objectives[:, 2].argmin(),
-                'carbon': objectives[:, 4].argmin()
-            }
-            
-            for name, idx in best_indices.items():
-                logger.debug(f"Current best {name}: {objectives[idx]}")
-
-
-class RMTwinOptimizer:
-    """Main optimization orchestrator"""
+            if subject_str.startswith('http://example.org/'):
+                if 'SensorSystem' in object_str or 'Sensor' in object_str:
+                    self.sensors.append(subject_str)
+                elif 'Algorithm' in object_str:
+                    self.algorithms.append(subject_str)
+                elif 'StorageSystem' in object_str:
+                    self.storage_systems.append(subject_str)
+                elif 'CommunicationSystem' in object_str:
+                    self.comm_systems.append(subject_str)
+                elif 'ComputeDeployment' in object_str or 'Deployment' in object_str:
+                    self.deployments.append(subject_str)
+        
+        # Remove duplicates
+        self.sensors = list(set(self.sensors))
+        self.algorithms = list(set(self.algorithms))
+        self.storage_systems = list(set(self.storage_systems))
+        self.comm_systems = list(set(self.comm_systems))
+        self.deployments = list(set(self.deployments))
+        
+        # Ensure we have at least some components
+        if not self.sensors:
+            self.sensors = ["http://example.org/rmtwin#MMS_LiDAR_Riegl_VUX1HA"]
+        if not self.algorithms:
+            self.algorithms = ["http://example.org/rmtwin#DL_YOLOv5s_Enhanced"]
+        if not self.storage_systems:
+            self.storage_systems = ["http://example.org/rmtwin#Storage_Cloud_AWS_S3"]
+        if not self.comm_systems:
+            self.comm_systems = ["http://example.org/rmtwin#Communication_5G_Network"]
+        if not self.deployments:
+            self.deployments = ["http://example.org/rmtwin#Deployment_Cloud_Computing"]
+        
+        logger.info(f"Cached components: {len(self.sensors)} sensors, "
+                   f"{len(self.algorithms)} algorithms, {len(self.storage_systems)} storage, "
+                   f"{len(self.comm_systems)} communication, {len(self.deployments)} deployment")
     
-    def __init__(self, ontology_graph, config):
-        self.ontology_graph = ontology_graph
+    def decode_solution(self, x: np.ndarray) -> Dict:
+        """Decode solution vector to configuration"""
+        x = x.flatten() if isinstance(x, np.ndarray) else x
+        
+        config = {
+            'sensor': self.sensors[int(x[0] * len(self.sensors)) % len(self.sensors)],
+            'data_rate': 10 + x[1] * 90,  # 10-100 Hz
+            'geo_lod': ['Micro', 'Meso', 'Macro'][int(x[2] * 3) % 3],
+            'cond_lod': ['Micro', 'Meso', 'Macro'][int(x[3] * 3) % 3],
+            'algorithm': self.algorithms[int(x[4] * len(self.algorithms)) % len(self.algorithms)],
+            'detection_threshold': 0.1 + x[5] * 0.8,  # 0.1-0.9
+            'storage': self.storage_systems[int(x[6] * len(self.storage_systems)) % len(self.storage_systems)],
+            'communication': self.comm_systems[int(x[7] * len(self.comm_systems)) % len(self.comm_systems)],
+            'deployment': self.deployments[int(x[8] * len(self.deployments)) % len(self.deployments)],
+            'crew_size': int(1 + x[9] * 9),  # 1-10
+            'inspection_cycle': int(1 + x[10] * 364)  # 1-365 days
+        }
+        
+        return config
+
+
+class EnhancedFitnessEvaluatorV2:
+    """Enhanced fitness evaluator with complete functionality"""
+    
+    def __init__(self, ontology_graph: Graph, config):
+        self.g = ontology_graph
         self.config = config
+        self.solution_mapper = SolutionMapper(ontology_graph)
         
-        # Initialize evaluator
-        self.evaluator = EnhancedFitnessEvaluatorV2(ontology_graph, config)
+        # Component property cache
+        self._property_cache = {}
+        self._initialize_cache()
         
-        # Initialize problem
-        self.problem = RMTwinProblem(self.evaluator, n_objectives=config.n_objectives)
+        # Statistics
+        self._evaluation_count = 0
+        self._cache_hits = 0
+        self._cache_misses = 0
         
-        # Configure algorithm
-        self.algorithm = self._configure_algorithm()
+    def _initialize_cache(self):
+        """Cache frequently accessed properties"""
+        logger.info("Initializing property cache...")
         
-    def _configure_algorithm(self):
-        """Configure NSGA-II/III algorithm"""
-        if self.config.n_objectives <= 3:
-            # Use NSGA-II for few objectives
-            algorithm = NSGA2(
-                pop_size=self.config.population_size,
-                sampling=FloatRandomSampling(),
-                crossover=SBX(eta=self.config.crossover_eta, 
-                             prob=self.config.crossover_prob),
-                mutation=PM(eta=self.config.mutation_eta, 
-                           prob=1.0/self.problem.n_var),
-                eliminate_duplicates=True
-            )
+        # Define properties to cache
+        properties = [
+            'hasInitialCostUSD', 'hasOperationalCostUSDPerDay', 'hasAnnualOpCostUSD',
+            'hasEnergyConsumptionW', 'hasMTBFHours', 'hasOperatorSkillLevel',
+            'hasCalibrationFreqMonths', 'hasDataAnnotationCostUSD',
+            'hasModelRetrainingFreqMonths', 'hasExplainabilityScore',
+            'hasIntegrationComplexity', 'hasCybersecurityVulnerability',
+            'hasAccuracyRangeMM', 'hasDataVolumeGBPerKm',
+            'hasCoverageEfficiencyKmPerDay', 'hasOperatingSpeedKmh',
+            'hasRecall', 'hasPrecision', 'hasFPS'
+        ]
+        
+        # Query all properties at once
+        for prop in properties:
+            query = f"""
+            SELECT ?subject ?value WHERE {{
+                ?subject rdtco:{prop} ?value .
+            }}
+            """
+            
+            for row in self.g.query(query):
+                subject = str(row.subject)
+                if subject not in self._property_cache:
+                    self._property_cache[subject] = {}
+                
+                try:
+                    self._property_cache[subject][prop] = float(row.value)
+                except:
+                    self._property_cache[subject][prop] = str(row.value)
+        
+        logger.info(f"Cached properties for {len(self._property_cache)} components")
+    
+    def _query_property(self, subject: str, predicate: str, default=None):
+        """Query property value with caching"""
+        # Check cache first
+        if subject in self._property_cache:
+            if predicate in self._property_cache[subject]:
+                self._cache_hits += 1
+                return self._property_cache[subject][predicate]
+        
+        # Query if not cached
+        self._cache_misses += 1
+        query = f"""
+        SELECT ?value WHERE {{
+            <{subject}> rdtco:{predicate} ?value .
+        }}
+        """
+        
+        for row in self.g.query(query):
+            try:
+                value = float(row.value)
+            except:
+                value = str(row.value)
+            
+            # Update cache
+            if subject not in self._property_cache:
+                self._property_cache[subject] = {}
+            self._property_cache[subject][predicate] = value
+            
+            return value
+        
+        return default
+    
+    def evaluate_batch(self, X: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Evaluate batch of solutions"""
+        n_solutions = len(X)
+        objectives = np.zeros((n_solutions, 6))
+        constraints = np.zeros((n_solutions, 3))
+        
+        # Use parallel evaluation if enabled
+        if self.config.use_parallel and n_solutions > 10:
+            with ThreadPoolExecutor(max_workers=self.config.n_processes) as executor:
+                futures = []
+                for i, x in enumerate(X):
+                    future = executor.submit(self._evaluate_single, x)
+                    futures.append((i, future))
+                
+                for i, future in futures:
+                    obj, const = future.result()
+                    objectives[i] = obj
+                    constraints[i] = const
         else:
-            # Use NSGA-III for many objectives
-            from pymoo.util.ref_dirs import get_reference_directions
-            ref_dirs = get_reference_directions("das-dennis", 
-                                              self.config.n_objectives, 
-                                              n_partitions=12)
+            # Sequential evaluation
+            for i, x in enumerate(X):
+                obj, const = self._evaluate_single(x)
+                objectives[i] = obj
+                constraints[i] = const
+        
+        # Update statistics
+        self._evaluation_count += n_solutions
+        
+        # Log progress periodically
+        if self._evaluation_count % 1000 == 0:
+            if self._cache_hits + self._cache_misses > 0:
+                cache_rate = self._cache_hits / (self._cache_hits + self._cache_misses) * 100
+            else:
+                cache_rate = 0.0
+            logger.info(f"Evaluated {self._evaluation_count} solutions. "
+                       f"Cache hit rate: {cache_rate:.1f}%")
             
-            algorithm = NSGA3(
-                ref_dirs=ref_dirs,
-                pop_size=self.config.population_size,
-                sampling=FloatRandomSampling(),
-                crossover=SBX(eta=self.config.crossover_eta, 
-                             prob=self.config.crossover_prob),
-                mutation=PM(eta=self.config.mutation_eta, 
-                           prob=1.0/self.problem.n_var),
-                eliminate_duplicates=True
-            )
+            # Log objective ranges
+            logger.debug(f"Objective ranges:")
+            logger.debug(f"  Cost: ${objectives[:, 0].min():.0f} - ${objectives[:, 0].max():.0f}")
+            logger.debug(f"  1-Recall: {objectives[:, 1].min():.3f} - {objectives[:, 1].max():.3f}")
+            logger.debug(f"  Latency: {objectives[:, 2].min():.1f} - {objectives[:, 2].max():.1f}s")
+            logger.debug(f"  Carbon: {objectives[:, 4].min():.0f} - {objectives[:, 4].max():.0f} kgCO2e")
         
-        return algorithm
+        return objectives, constraints
     
-    def optimize(self) -> Tuple[pd.DataFrame, Dict]:
-        """Run optimization and return results"""
-        logger.info(f"Starting {self.algorithm.__class__.__name__} optimization...")
+    def _evaluate_single(self, x: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Evaluate single solution"""
+        config = self.solution_mapper.decode_solution(x)
         
-        # Configure termination
-        termination = get_termination("n_gen", self.config.n_generations)
+        # Calculate objectives
+        f1 = self._calculate_total_cost_v2(config)
+        f2 = self._calculate_detection_performance_v2(config)
+        f3 = self._calculate_latency_v2(config)
+        f4 = self._calculate_traffic_disruption_v2(config)
+        f5 = self._calculate_environmental_impact_v2(config)
+        f6 = self._calculate_system_reliability_v2(config)
         
-        # Run optimization
-        res = minimize(
-            self.problem,
-            self.algorithm,
-            termination,
-            seed=42,
-            save_history=True,
-            verbose=True
-        )
+        objectives = np.array([f1, f2, f3, f4, f5, f6])
         
-        # Process results
-        pareto_df = self._process_results(res)
+        # Calculate constraints
+        recall = 1 - f2
+        constraints = np.array([
+            f3 - self.config.max_latency_seconds,  # Max latency
+            self.config.min_recall_threshold - recall,  # Min recall
+            f1 - self.config.budget_cap_usd  # Budget
+        ])
         
-        # Extract history
-        history = {
-            'n_evals': res.algorithm.n_eval,
-            'exec_time': res.exec_time,
-            'n_gen': res.algorithm.n_gen,
-            'history': res.history if hasattr(res, 'history') else None
-        }
-        
-        return pareto_df, history
+        return objectives, constraints
     
-    def _process_results(self, res) -> pd.DataFrame:
-        """Convert optimization results to DataFrame"""
-        if res.X is None:
-            logger.warning("No solutions found!")
-            return pd.DataFrame()
+    def _calculate_total_cost_v2(self, config: Dict) -> float:
+        """Enhanced cost calculation including all factors"""
+        sensor_name = str(config['sensor']).split('#')[-1]
         
-        # Ensure arrays are 2D
-        X = res.X if res.X.ndim == 2 else res.X.reshape(1, -1)
-        F = res.F if res.F.ndim == 2 else res.F.reshape(1, -1)
+        # Initial investment
+        sensor_initial_cost = self._query_property(
+            config['sensor'], 'hasInitialCostUSD', 100000)
         
-        results = []
+        # Special handling for FOS
+        if 'FOS' in sensor_name or 'Fiber' in sensor_name:
+            sensor_spacing_km = getattr(self.config, 'fos_sensor_spacing_km', 0.1)
+            sensors_needed = self.config.road_network_length_km / sensor_spacing_km
+            actual_sensor_cost = sensor_initial_cost * sensors_needed
+            installation_cost = 5000 * sensors_needed
+            total_sensor_initial = actual_sensor_cost + installation_cost
+        else:
+            total_sensor_initial = sensor_initial_cost
         
-        for i in range(len(X)):
-            # Decode configuration
-            config = self.evaluator.solution_mapper.decode_solution(X[i])
+        # Other components
+        storage_initial = self._query_property(config['storage'], 'hasInitialCostUSD', 0)
+        comm_initial = self._query_property(config['communication'], 'hasInitialCostUSD', 0)
+        deployment_initial = self._query_property(config['deployment'], 'hasInitialCostUSD', 0)
+        algo_initial = self._query_property(config['algorithm'], 'hasInitialCostUSD', 20000)
+        
+        total_initial_investment = (total_sensor_initial + storage_initial + 
+                                  comm_initial + deployment_initial + algo_initial)
+        
+        # Annual operational costs
+        depreciation_rate = getattr(self.config, 'depreciation_rate', 0.1)
+        annual_capital_cost = total_initial_investment * depreciation_rate
+        
+        # Sensor operational costs
+        sensor_daily_cost = self._query_property(
+            config['sensor'], 'hasOperationalCostUSDPerDay', 100)
+        coverage_km_day = self._query_property(
+            config['sensor'], 'hasCoverageEfficiencyKmPerDay', 80)
+        
+        if coverage_km_day > 0:  # Mobile sensor
+            inspections_per_year = 365 / config['inspection_cycle']
+            days_per_inspection = self.config.road_network_length_km / coverage_km_day
+            sensor_annual_operational = sensor_daily_cost * days_per_inspection * inspections_per_year
+        else:  # Fixed sensor
+            if 'FOS' in sensor_name:
+                operational_cost_per_sensor_day = 0.5
+                sensors_needed = self.config.road_network_length_km / sensor_spacing_km
+                sensor_annual_operational = operational_cost_per_sensor_day * sensors_needed * 365
+            else:
+                sensor_annual_operational = sensor_daily_cost * 365
+        
+        # Other operational costs
+        storage_annual = self._query_property(config['storage'], 'hasAnnualOpCostUSD', 5000)
+        comm_annual = self._query_property(config['communication'], 'hasAnnualOpCostUSD', 2000)
+        deployment_annual = self._query_property(config['deployment'], 'hasAnnualOpCostUSD', 10000)
+        
+        # Crew costs
+        skill_level = self._query_property(config['sensor'], 'hasOperatorSkillLevel', 'Basic')
+        skill_multiplier = {
+            'Basic': 1.0, 'Intermediate': 1.5, 'Expert': 2.0
+        }.get(str(skill_level), 1.0)
+        
+        daily_wage = self.config.daily_wage_per_person * skill_multiplier
+        
+        if coverage_km_day > 0:
+            crew_annual_cost = (config['crew_size'] * daily_wage * 
+                              days_per_inspection * inspections_per_year)
+        else:
+            maintenance_days = 10 if 'FOS' in sensor_name else 20
+            crew_annual_cost = config['crew_size'] * daily_wage * maintenance_days
+        
+        # Data annotation costs (for DL)
+        data_annotation_annual = 0
+        if 'DL' in str(config['algorithm']) or 'Deep' in str(config['algorithm']):
+            annotation_cost = self._query_property(
+                config['algorithm'], 'hasDataAnnotationCostUSD', 0.5)
             
-            # Get objectives
-            objectives = F[i]
+            if 'Camera' in sensor_name:
+                images_per_km = 100
+                annual_images = images_per_km * self.config.road_network_length_km * inspections_per_year
+            else:
+                annual_images = 10000
             
-            # Create result dictionary
-            result = {
-                'solution_id': i + 1,
-                
-                # Configuration details
-                'sensor': config['sensor'].split('#')[-1],
-                'algorithm': config['algorithm'].split('#')[-1],
-                'data_rate_Hz': config['data_rate'],
-                'geometric_LOD': config['geo_lod'],
-                'condition_LOD': config['cond_lod'],
-                'detection_threshold': config['detection_threshold'],
-                'storage': config['storage'].split('#')[-1],
-                'communication': config['communication'].split('#')[-1],
-                'deployment': config['deployment'].split('#')[-1],
-                'crew_size': config['crew_size'],
-                'inspection_cycle_days': config['inspection_cycle'],
-                
-                # Raw objectives
-                'f1_total_cost_USD': float(objectives[0]),
-                'f2_one_minus_recall': float(objectives[1]),
-                'f3_latency_seconds': float(objectives[2]),
-                'f4_traffic_disruption_hours': float(objectives[3]),
-                'f5_carbon_emissions_kgCO2e_year': float(objectives[4]),
-                'f6_system_reliability_inverse_MTBF': float(objectives[5]),
-                
-                # Derived metrics
-                'detection_recall': float(1 - objectives[1]),
-                'system_MTBF_hours': float(1/objectives[5] if objectives[5] > 0 else 1e6),
-                'system_MTBF_years': float(1/objectives[5]/8760 if objectives[5] > 0 else 100),
-                'annual_cost_USD': float(objectives[0] / self.config.planning_horizon_years),
-                'cost_per_km_year': float(objectives[0] / self.config.planning_horizon_years / 
-                                         self.config.road_network_length_km),
-                'carbon_footprint_tons_CO2_year': float(objectives[4] / 1000),
-                
-                # Constraint checks
-                'is_feasible': True,  # All Pareto solutions are feasible
-                'latency_constraint_ok': bool(objectives[2] <= self.config.max_latency_seconds),
-                'recall_constraint_ok': bool((1 - objectives[1]) >= self.config.min_recall_threshold),
-                'budget_constraint_ok': bool(objectives[0] <= self.config.budget_cap_usd)
-            }
-            
-            results.append(result)
+            data_annotation_annual = annotation_cost * annual_images
         
-        # Convert to DataFrame
-        df = pd.DataFrame(results)
-        df = df.sort_values('f1_total_cost_USD')
+        # Total annual cost
+        total_annual_cost = (annual_capital_cost + sensor_annual_operational + 
+                           storage_annual + comm_annual + deployment_annual + 
+                           crew_annual_cost + data_annotation_annual)
         
-        # Add rankings
-        df['cost_rank'] = df['f1_total_cost_USD'].rank()
-        df['recall_rank'] = df['detection_recall'].rank(ascending=False)
-        df['carbon_rank'] = df['f5_carbon_emissions_kgCO2e_year'].rank()
-        df['reliability_rank'] = df['system_MTBF_hours'].rank(ascending=False)
+        # Total lifecycle cost
+        total_lifecycle_cost = total_annual_cost * self.config.planning_horizon_years
         
-        logger.info(f"Processed {len(df)} Pareto-optimal solutions")
-        
-        return df
-
-
-class OptimizationAnalyzer:
-    """Analyze optimization results"""
+        return total_lifecycle_cost
     
-    @staticmethod
-    def calculate_hypervolume(F: np.ndarray, ref_point: np.ndarray) -> float:
-        """Calculate hypervolume indicator"""
-        from pymoo.indicators.hv import HV
-        ind = HV(ref_point=ref_point)
-        return ind(F)
+    def _calculate_detection_performance_v2(self, config: Dict) -> float:
+        """Enhanced detection performance with class imbalance"""
+        base_recall = self._query_property(config['algorithm'], 'hasRecall', 0.7)
+        
+        # Sensor accuracy impact
+        accuracy_mm = self._query_property(config['sensor'], 'hasAccuracyRangeMM', 10)
+        accuracy_factor = 1 - (accuracy_mm / 100)
+        
+        # LOD impact
+        lod_factor = {'Micro': 1.1, 'Meso': 1.0, 'Macro': 0.9}.get(config['geo_lod'], 1.0)
+        
+        # Class imbalance penalty
+        algo_name = str(config['algorithm']).split('#')[-1]
+        class_imbalance_penalties = getattr(self.config, 'class_imbalance_penalties', {
+            'Traditional': 0.05, 'ML': 0.02, 'DL': 0.01, 'PC': 0.03
+        })
+        
+        penalty = 0
+        for algo_type, pen_value in class_imbalance_penalties.items():
+            if algo_type in algo_name:
+                penalty = pen_value
+                break
+        
+        final_recall = base_recall * accuracy_factor * lod_factor - penalty
+        return 1 - np.clip(final_recall, 0.01, 0.99)
     
-    @staticmethod
-    def calculate_igd(F: np.ndarray, pareto_front: np.ndarray) -> float:
-        """Calculate Inverted Generational Distance"""
-        from pymoo.indicators.igd import IGD
-        ind = IGD(pareto_front)
-        return ind(F)
+    def _calculate_latency_v2(self, config: Dict) -> float:
+        """Enhanced latency with scenario-aware networking"""
+        # Data volume
+        data_gb = self._query_property(config['sensor'], 'hasDataVolumeGBPerKm', 1.0)
+        
+        # Base bandwidth
+        comm_type = str(config['communication']).split('#')[-1]
+        base_bw = {
+            'Communication_5G_Network': 1000,
+            'Communication_LoRaWAN': 0.05,
+            'Communication_Fiber_Optic': 10000,
+            'Communication_4G_LTE': 100
+        }.get(comm_type, 100)
+        
+        # Scenario impact
+        scenario_type = getattr(self.config, 'scenario_type', 'urban')
+        network_quality_factors = getattr(self.config, 'network_quality_factors', {
+            'rural': {'Fiber': 0.8, '5G': 0.7, '4G': 0.9, 'LoRaWAN': 1.0},
+            'urban': {'Fiber': 1.0, '5G': 1.0, '4G': 1.0, 'LoRaWAN': 0.9}
+        })
+        
+        tech = None
+        for t in ['Fiber', '5G', '4G', 'LoRaWAN']:
+            if t in comm_type:
+                tech = t
+                break
+        
+        scenario_factor = 1.0
+        if tech and scenario_type in network_quality_factors:
+            scenario_factor = network_quality_factors[scenario_type].get(tech, 1.0)
+        
+        effective_bw = base_bw * scenario_factor
+        
+        # Communication time
+        comm_time = (data_gb * 1000) / effective_bw if effective_bw > 0 else 100
+        
+        # Processing time
+        deploy_factor = {
+            'Edge': 1.5, 'Cloud': 1.0, 'Hybrid': 1.2, 'OnPremise': 1.3
+        }.get(config['deployment'].split('_')[-1], 1.0)
+        
+        proc_time = 0.1 * deploy_factor
+        
+        return 1/config['data_rate'] + comm_time + proc_time
     
-    @staticmethod
-    def analyze_convergence(history) -> Dict:
-        """Analyze convergence characteristics"""
-        if not history or not hasattr(history, 'data'):
-            return {}
+    def _calculate_traffic_disruption_v2(self, config: Dict) -> float:
+        """Enhanced traffic disruption model"""
+        base_hours = 4.0
+        inspections_year = 365 / config['inspection_cycle']
         
-        results = {
-            'n_generations': len(history),
-            'final_pop_size': len(history[-1].pop),
-            'convergence_metrics': []
-        }
+        speed = self._query_property(config['sensor'], 'hasOperatingSpeedKmh', 80)
         
-        # Track metrics over generations
-        for gen, algo in enumerate(history):
-            if hasattr(algo, 'pop'):
-                F = algo.pop.get('F')
-                metrics = {
-                    'generation': gen,
-                    'n_solutions': len(F),
-                    'best_cost': F[:, 0].min(),
-                    'best_recall': 1 - F[:, 1].min(),
-                    'avg_cost': F[:, 0].mean(),
-                    'avg_recall': 1 - F[:, 1].mean()
-                }
-                results['convergence_metrics'].append(metrics)
+        if speed > 0:
+            speed_factor = 80 / speed if speed < 80 else 1.0
+            disruption = base_hours * speed_factor * inspections_year
+        else:
+            disruption = 0.1 * inspections_year
         
-        return results
+        # Traffic impact factors
+        default_lane_closure = getattr(self.config, 'default_lane_closure_ratio', 0.3)
+        traffic_volume = getattr(self.config, 'traffic_volume_hourly', 2000)
+        
+        lane_factor = 1 + default_lane_closure
+        traffic_factor = traffic_volume / 1000
+        
+        return disruption * lane_factor * traffic_factor
+    
+    def _calculate_environmental_impact_v2(self, config: Dict) -> float:
+        """Enhanced environmental impact - carbon footprint"""
+        total_power_w = 0
+        
+        for comp in ['sensor', 'storage', 'communication', 'deployment']:
+            if comp in config:
+                power = self._query_property(config[comp], 'hasEnergyConsumptionW', 0)
+                total_power_w += power if power else 0
+        
+        coverage = self._query_property(config['sensor'], 'hasCoverageEfficiencyKmPerDay', 80)
+        
+        if coverage > 0:
+            sensor_hours = (self.config.road_network_length_km / coverage) * \
+                         (365 / config['inspection_cycle']) * 8
+            vehicle_km = self.config.road_network_length_km * (365 / config['inspection_cycle'])
+            vehicle_kwh = vehicle_km * 0.8
+        else:
+            sensor_hours = 365 * 24
+            vehicle_kwh = 0
+        
+        backend_hours = 365 * 24
+        
+        total_kwh = (total_power_w * 0.3 * sensor_hours + 
+                    total_power_w * 0.7 * backend_hours) / 1000 + vehicle_kwh
+        
+        # Carbon emissions
+        carbon_intensity = getattr(self.config, 'carbon_intensity_factor', 0.417)
+        return total_kwh * carbon_intensity
+    
+    def _calculate_system_reliability_v2(self, config: Dict) -> float:
+        """Enhanced reliability with redundancy factors"""
+        inverse_mtbf = 0
+        
+        redundancy_multipliers = getattr(self.config, 'redundancy_multipliers', {
+            'Cloud': 10.0, 'OnPremise': 1.5, 'Edge': 2.0, 'Hybrid': 5.0
+        })
+        
+        for comp in ['sensor', 'storage', 'communication', 'deployment']:
+            if comp in config:
+                base_mtbf = self._query_property(config[comp], 'hasMTBFHours', 10000)
+                
+                # Apply redundancy
+                comp_type = str(config[comp]).split('#')[-1]
+                redundancy = 1.0
+                for red_type, mult in redundancy_multipliers.items():
+                    if red_type in comp_type:
+                        redundancy = mult
+                        break
+                
+                effective_mtbf = base_mtbf * redundancy
+                if effective_mtbf > 0:
+                    inverse_mtbf += 1 / effective_mtbf
+        
+        return inverse_mtbf if inverse_mtbf > 0 else 1e-6

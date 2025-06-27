@@ -11,7 +11,7 @@ import logging
 import time
 from abc import ABC, abstractmethod
 
-from evaluation import EnhancedFitnessEvaluatorV2
+# Import will be done in the classes to avoid circular import
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class BaselineMethod(ABC):
     """Abstract base class for baseline methods"""
     
-    def __init__(self, evaluator: EnhancedFitnessEvaluatorV2, config):
+    def __init__(self, evaluator, config):
         self.evaluator = evaluator
         self.config = config
         self.results = []
@@ -389,6 +389,9 @@ class BaselineRunner:
     def __init__(self, ontology_graph, config):
         self.ontology_graph = ontology_graph
         self.config = config
+        
+        # Import here to avoid circular import
+        from evaluation import EnhancedFitnessEvaluatorV2
         
         # Initialize shared evaluator
         self.evaluator = EnhancedFitnessEvaluatorV2(ontology_graph, config)
