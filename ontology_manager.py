@@ -328,37 +328,46 @@ class OntologyManager:
                    Literal(0.65, datatype=XSD.decimal)))
     
     def _verify_loaded_components(self):
-        """验证加载的组件"""
-        # 查询所有传感器实例
-        sensor_query = """
-        SELECT DISTINCT ?sensor WHERE {
-            ?sensor rdf:type ?type .
-            FILTER(CONTAINS(STR(?type), "Sensor") || 
-                   ?sensor rdf:type rdtco:MMS_LiDAR_System ||
-                   ?sensor rdf:type rdtco:MMS_Camera_System ||
-                   ?sensor rdf:type rdtco:UAV_LiDAR_System ||
-                   ?sensor rdf:type rdtco:UAV_Camera_System ||
-                   ?sensor rdf:type rdtco:TLS_System ||
-                   ?sensor rdf:type rdtco:Handheld_3D_Scanner ||
-                   ?sensor rdf:type rdtco:FiberOptic_Sensor ||
-                   ?sensor rdf:type rdtco:Vehicle_LowCost_Sensor ||
-                   ?sensor rdf:type rdtco:IoT_Network_System)
-        }
-        """
-        
-        sensors = list(self.g.query(sensor_query))
-        logger.info(f"验证：找到 {len(sensors)} 个传感器实例")
-        
-        # 查询算法
-        algo_query = """
-        SELECT DISTINCT ?algo WHERE {
-            ?algo rdf:type ?type .
-            FILTER(CONTAINS(STR(?type), "Algorithm"))
-        }
-        """
-        
-        algorithms = list(self.g.query(algo_query))
-        logger.info(f"验证：找到 {len(algorithms)} 个算法实例")
+    """验证加载的组件"""
+    # 查询所有传感器实例 - 修复的查询
+    sensor_query = """
+    PREFIX rdtco: <http://www.semanticweb.org/rmtwin/ontologies/rdtco#>
+    PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+    
+    SELECT DISTINCT ?sensor WHERE {
+        ?sensor rdf:type ?type .
+        FILTER(
+            CONTAINS(STR(?type), "Sensor") || 
+            CONTAINS(STR(?type), "sensor") ||
+            STR(?type) = "http://www.semanticweb.org/rmtwin/ontologies/rdtco#MMS_LiDAR_System" ||
+            STR(?type) = "http://www.semanticweb.org/rmtwin/ontologies/rdtco#MMS_Camera_System" ||
+            STR(?type) = "http://www.semanticweb.org/rmtwin/ontologies/rdtco#UAV_LiDAR_System" ||
+            STR(?type) = "http://www.semanticweb.org/rmtwin/ontologies/rdtco#UAV_Camera_System" ||
+            STR(?type) = "http://www.semanticweb.org/rmtwin/ontologies/rdtco#TLS_System" ||
+            STR(?type) = "http://www.semanticweb.org/rmtwin/ontologies/rdtco#Handheld_3D_Scanner" ||
+            STR(?type) = "http://www.semanticweb.org/rmtwin/ontologies/rdtco#FiberOptic_Sensor" ||
+            STR(?type) = "http://www.semanticweb.org/rmtwin/ontologies/rdtco#Vehicle_LowCost_Sensor" ||
+            STR(?type) = "http://www.semanticweb.org/rmtwin/ontologies/rdtco#IoT_Network_System"
+        )
+    }
+    """
+    
+    sensors = list(self.g.query(sensor_query))
+    logger.info(f"验证：找到 {len(sensors)} 个传感器实例")
+    
+    # 查询算法
+    algo_query = """
+    PREFIX rdtco: <http://www.semanticweb.org/rmtwin/ontologies/rdtco#>
+    PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+    
+    SELECT DISTINCT ?algo WHERE {
+        ?algo rdf:type ?type .
+        FILTER(CONTAINS(STR(?type), "Algorithm") || CONTAINS(STR(?type), "algorithm"))
+    }
+    """
+    
+    algorithms = list(self.g.query(algo_query))
+    logger.info(f"验证：找到 {len(algorithms)} 个算法实例")
     
     def validate_configuration(self, config_uri: URIRef) -> bool:
         """验证配置是否符合约束"""
