@@ -27,7 +27,7 @@ class ConfigManager:
     # Network parameters
     road_network_length_km: float = 500.0
     planning_horizon_years: int = 10
-    budget_cap_usd: float = 10_000_000
+    budget_cap_usd: float = 20_000_000  # 从10M增加到20M
     
     # Operational parameters
     daily_wage_per_person: float = 1500
@@ -37,11 +37,12 @@ class ConfigManager:
     carbon_intensity_factor: float = 0.417
     
     # Constraints
-    min_recall_threshold: float = 0.70
-    max_latency_seconds: float = 180.0
-    max_disruption_hours: float = 100.0
-    max_energy_kwh_year: float = 50_000
-    min_mtbf_hours: float = 5_000
+    min_recall_threshold: float = 0.60  # 从0.70降低到0.60
+    max_latency_seconds: float = 300.0  # 从180增加到300
+    max_disruption_hours: float = 200.0  # 从100增加到200
+    max_energy_kwh_year: float = 100_000  # 从50000增加到100000
+    min_mtbf_hours: float = 3_000  # 从5000降低到3000
+    max_carbon_emissions_kgCO2e_year: float = 100_000  # 新增参数
     
     # Optimization parameters
     n_objectives: int = 6

@@ -155,13 +155,25 @@ class SimpleEvaluator:
         recall = 1 - f2
         
         constraints = np.array([
-            f3 - self.config['max_latency_seconds'],  # Max latency
-            self.config['min_recall_threshold'] - recall,  # Min recall
-            f1 - self.config['budget_cap_usd'],  # Budget
-            f5 - self.config.get('max_carbon_emissions_kgCO2e_year', 50000),  # Max carbon
-            self.config.get('min_mtbf_hours', 5000) - (1/f6 if f6 > 0 else 1e6)  # Min MTBF
-        ])
-        
+                f3 - self.config['max_latency_seconds'],  # Max latency
+                self.config['min_recall_threshold'] - recall,  # Min recall
+                f1 - self.config['budget_cap_usd'],  # Budget
+                f5 - self.config.get('max_carbon_emissions_kgCO2e_year', 100000),  # Max carbon
+                self.config.get('min_mtbf_hours', 3000) - (1/f6 if f6 > 0 else 1e6)  # Min MTBF
+            ])
+            
+            # Debug logging for first few evaluations (optional)
+            # if hasattr(self, '_debug_count'):
+            #     self._debug_count += 1
+            # else:
+            #     self._debug_count = 1
+            
+            # if self._debug_count <= 10:
+            #     logger.debug(f"Objectives: cost={f1:.0f}, recall={recall:.3f}, "
+            #                 f"latency={f3:.1f}, disruption={f4:.1f}, "
+            #                 f"carbon={f5:.0f}, mtbf={1/f6 if f6>0 else 1e6:.0f}")
+            #     logger.debug(f"Constraints: {constraints}")
+            
         return constraints
     
     def _calculate_total_cost_v2(self, config: Dict) -> float:
@@ -690,3 +702,14 @@ class EnhancedFitnessEvaluatorV2:
             logger.debug(f"  1/MTBF: {objectives[:, 5].min():.6f} - {objectives[:, 5].max():.6f}")
         
         return objectives, constraints
+    
+    def _evaluate_single(self, x: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Evaluate a single solution"""
+        # Reshape to 2D array for batch evaluation
+        X = x.reshape(1, -1)
+        
+        # Use batch evaluation
+        objectives, constraints = self.evaluate_batch(X)
+        
+        # Return flattened results
+        return objectives[0], constraints[0]

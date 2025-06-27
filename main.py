@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 RMTwin Multi-Objective Optimization Framework
-Main Entry Point - Clean Architecture Version
+Main Entry Point - Fixed version
 """
 
 import argparse
@@ -78,8 +78,11 @@ def main():
             
             # Save results
             pareto_path = config.output_dir / 'pareto_solutions_6d_enhanced.csv'
-            pareto_results.to_csv(pareto_path, index=False)
-            logger.info(f"Found {len(pareto_results)} Pareto-optimal solutions")
+            if len(pareto_results) > 0:
+                pareto_results.to_csv(pareto_path, index=False)
+                logger.info(f"Found {len(pareto_results)} Pareto-optimal solutions")
+            else:
+                logger.warning("No Pareto-optimal solutions found!")
             logger.info(f"Optimization time: {optimization_time:.2f} seconds")
             
             all_results['nsga2'] = {
@@ -100,9 +103,15 @@ def main():
             # Save baseline results
             for method_name, df in baseline_results.items():
                 baseline_path = config.output_dir / f'baseline_{method_name}.csv'
-                df.to_csv(baseline_path, index=False)
-                logger.info(f"{method_name}: {len(df)} solutions "
-                          f"({df['is_feasible'].sum()} feasible)")
+                if len(df) > 0:
+                    df.to_csv(baseline_path, index=False)
+                    if 'is_feasible' in df.columns:
+                        logger.info(f"{method_name}: {len(df)} solutions "
+                                  f"({df['is_feasible'].sum()} feasible)")
+                    else:
+                        logger.info(f"{method_name}: {len(df)} solutions")
+                else:
+                    logger.info(f"{method_name}: No solutions generated")
             
             all_results['baselines'] = {
                 'dataframes': baseline_results,
@@ -122,12 +131,14 @@ def main():
                     pareto_results = pd.read_csv(pareto_path)
                     all_results['nsga2'] = {'dataframe': pareto_results}
             
-            if 'nsga2' in all_results:
+            if 'nsga2' in all_results and len(all_results['nsga2']['dataframe']) > 0:
                 visualizer.create_all_figures(
                     pareto_results=all_results['nsga2']['dataframe'],
                     baseline_results=all_results.get('baselines', {}).get('dataframes')
                 )
                 logger.info("Visualizations completed")
+            else:
+                logger.warning("No solutions available for visualization")
         
         # Step 5: Generate comprehensive report
         logger.info("\nStep 5: Generating final report...")
