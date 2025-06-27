@@ -616,7 +616,7 @@ class SimpleEvaluator:
             return 1e-6  # Default to very high reliability if no data
 
 
-class EnhancedFitnessEvaluatorV3:
+class EnhancedFitnessEvaluatorV2:
     """Enhanced fitness evaluator with 6 objectives and parallel processing"""
     
     def __init__(self, ontology_graph: Graph, config):
