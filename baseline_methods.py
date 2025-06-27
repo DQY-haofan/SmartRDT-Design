@@ -77,6 +77,7 @@ class BaselineMethod(ABC):
 
 
 
+
 class RandomSearchBaseline(BaselineMethod):
     """Random search baseline with constraint awareness"""
     
@@ -88,8 +89,11 @@ class RandomSearchBaseline(BaselineMethod):
         start_time = time.time()
         
         for i in range(n_samples):
-            # Smart random generation with higher chance of feasibility
-            x = self._generate_smart_random_solution()
+            # 70% smart random, 30% pure random
+            if np.random.random() < 0.7:
+                x = self._generate_smart_random_solution()
+            else:
+                x = np.random.rand(11)
             
             # Evaluate
             objectives, constraints = self.evaluator._evaluate_single(x)
@@ -334,8 +338,56 @@ class WeightedSumBaseline(BaselineMethod):
 
 
 
+
 class ExpertHeuristicBaseline(BaselineMethod):
     """Expert-defined configurations with feasibility focus"""
+    
+    def optimize(self) -> pd.DataFrame:
+        """Generate expert-recommended configurations"""
+        logger.info("Running Expert Heuristic baseline...")
+        
+        start_time = time.time()
+        
+        # Define expert configurations with improved feasibility
+        expert_configs = [
+            ("HighPerformance", self._high_performance_config()),
+            ("LowCost", self._low_cost_config()),
+            ("Balanced", self._balanced_config()),
+            ("Sustainable", self._sustainable_config()),
+            ("Reliable", self._reliable_config()),
+            ("RealTime", self._real_time_config()),
+            ("LongRange", self._long_range_config()),
+            ("HighPrecision", self._high_precision_config()),
+            ("MinimalDisruption", self._minimal_disruption_config()),
+            ("Practical", self._practical_config())
+        ]
+        
+        for idx, (name, x) in enumerate(expert_configs):
+            # Evaluate
+            objectives, constraints = self.evaluator._evaluate_single(x)
+            
+            # Store result
+            result = self._create_result_entry(x, objectives, constraints, idx + 1)
+            result['method'] = f"ExpertHeuristic-{name}"
+            self.results.append(result)
+        
+        self.execution_time = time.time() - start_time
+        
+        # Update time
+        for result in self.results:
+            result['time_seconds'] = self.execution_time
+        
+        df = pd.DataFrame(self.results)
+        logger.info(f"Expert Heuristic completed in {self.execution_time:.2f} seconds")
+        logger.info(f"  Generated {len(df)} expert configurations")
+        logger.info(f"  {df['is_feasible'].sum()} are feasible")
+        
+        return df
+    
+    def _high_performance_config(self) -> np.ndarray:
+        """Maximum detection performance - adjusted for feasibility"""
+        # MMS but with cost controls
+        return np.array([0.3, 0.7, 0.33, 0.33, 0.2, 0.8, 0.0, 0.8, 0.5, 0.4, 0.08])
     
     def _low_cost_config(self) -> np.ndarray:
         """Minimum cost configuration - improved"""
@@ -347,11 +399,6 @@ class ExpertHeuristicBaseline(BaselineMethod):
         # Vehicle sensor, moderate settings
         return np.array([0.8, 0.5, 0.5, 0.5, 0.5, 0.6, 0.0, 0.5, 0.8, 0.3, 0.1])
     
-    def _high_performance_config(self) -> np.ndarray:
-        """Maximum detection performance - adjusted for feasibility"""
-        # MMS but with cost controls
-        return np.array([0.3, 0.7, 0.33, 0.33, 0.2, 0.8, 0.0, 0.8, 0.5, 0.4, 0.08])
-    
     def _sustainable_config(self) -> np.ndarray:
         """Minimum environmental impact - improved"""
         # UAV with efficient settings
@@ -362,6 +409,31 @@ class ExpertHeuristicBaseline(BaselineMethod):
         # Balanced with redundancy
         return np.array([0.4, 0.4, 0.5, 0.5, 0.4, 0.6, 0.5, 0.7, 0.8, 0.3, 0.1])
     
+    def _real_time_config(self) -> np.ndarray:
+        """Minimum latency for real-time response"""
+        # Edge computing with fast processing
+        return np.array([0.6, 0.8, 0.67, 0.67, 0.3, 0.7, 0.2, 0.8, 0.0, 0.3, 0.1])
+    
+    def _long_range_config(self) -> np.ndarray:
+        """Maximum coverage efficiency"""
+        # MMS with optimized settings
+        return np.array([0.2, 0.7, 0.67, 0.67, 0.5, 0.6, 0.0, 0.6, 0.5, 0.2, 0.2])
+    
+    def _high_precision_config(self) -> np.ndarray:
+        """Maximum measurement precision"""
+        # High-end sensor with micro LOD
+        return np.array([0.1, 0.6, 0.0, 0.0, 0.2, 0.9, 0.0, 0.7, 0.3, 0.4, 0.08])
+    
+    def _minimal_disruption_config(self) -> np.ndarray:
+        """Minimum traffic disruption"""
+        # UAV or fixed sensors
+        return np.array([0.6, 0.4, 0.5, 0.5, 0.7, 0.5, 0.0, 0.4, 0.7, 0.15, 0.5])
+    
+    def _practical_config(self) -> np.ndarray:
+        """Practical balanced configuration"""
+        # Vehicle-based with reasonable settings
+        return np.array([0.85, 0.5, 0.5, 0.5, 0.6, 0.7, 0.0, 0.5, 0.9, 0.3, 0.15])
+        
 
 class BaselineRunner:
     """Orchestrates all baseline methods"""
