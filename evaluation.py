@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Enhanced Fitness Evaluation Module V2
-Fixed version with thread-safe SPARQL queries
+Fixed version without threading issues
 """
 
 import numpy as np
@@ -10,10 +10,8 @@ from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import dataclass
 import logging
 from functools import lru_cache
-from concurrent.futures import ThreadPoolExecutor
 from rdflib import Graph, Namespace, URIRef
 from rdflib.namespace import RDFS, RDF, OWL, XSD
-import threading
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +98,7 @@ class SolutionMapper:
 
 
 class EnhancedFitnessEvaluatorV2:
-    """Enhanced fitness evaluator with thread-safe implementation"""
+    """Enhanced fitness evaluator - simplified without threading"""
     
     def __init__(self, ontology_graph: Graph, config):
         self.g = ontology_graph
@@ -110,19 +108,14 @@ class EnhancedFitnessEvaluatorV2:
         # Component property cache
         self._property_cache = {}
         
-        # Thread lock for SPARQL queries
-        self._sparql_lock = threading.RLock()
-        
-        # Pre-cache all properties before parallel execution
+        # Pre-cache all properties at initialization (sequential)
         self._initialize_cache()
         
         # Statistics
         self._evaluation_count = 0
-        self._cache_hits = 0
-        self._cache_misses = 0
         
     def _initialize_cache(self):
-        """Cache frequently accessed properties - thread safe"""
+        """Cache all properties at initialization time"""
         logger.info("Initializing property cache...")
         
         # Define properties to cache
@@ -137,7 +130,7 @@ class EnhancedFitnessEvaluatorV2:
             'hasRecall', 'hasPrecision', 'hasFPS'
         ]
         
-        # Cache all component properties in one go
+        # Get all components
         all_components = (
             self.solution_mapper.sensors + 
             self.solution_mapper.algorithms + 
@@ -146,79 +139,58 @@ class EnhancedFitnessEvaluatorV2:
             self.solution_mapper.deployments
         )
         
-        # Execute all queries sequentially during initialization
-        with self._sparql_lock:
-            for component in all_components:
-                if component not in self._property_cache:
-                    self._property_cache[component] = {}
+        # Cache properties for each component
+        for component in all_components:
+            if component not in self._property_cache:
+                self._property_cache[component] = {}
+            
+            for prop in properties:
+                query = f"""
+                PREFIX rdtco: <http://www.semanticweb.org/rmtwin/ontologies/rdtco#>
+                SELECT ?value WHERE {{
+                    <{component}> rdtco:{prop} ?value .
+                }}
+                """
                 
-                for prop in properties:
-                    query = f"""
-                    SELECT ?value WHERE {{
-                        <{component}> rdtco:{prop} ?value .
-                    }}
-                    """
-                    
-                    try:
-                        for row in self.g.query(query):
-                            try:
-                                self._property_cache[component][prop] = float(row.value)
-                            except:
-                                self._property_cache[component][prop] = str(row.value)
-                    except Exception:
-                        # Skip if property doesn't exist
-                        pass
+                try:
+                    results = list(self.g.query(query))
+                    if results:
+                        value = results[0][0]
+                        try:
+                            self._property_cache[component][prop] = float(value)
+                        except:
+                            self._property_cache[component][prop] = str(value)
+                except Exception as e:
+                    # Skip if property doesn't exist
+                    pass
         
         logger.info(f"Cached properties for {len(self._property_cache)} components")
     
     def _query_property(self, subject: str, predicate: str, default=None):
-        """Query property value with caching - thread safe"""
-        # Always check cache first (no SPARQL needed)
+        """Get property value from cache only"""
         if subject in self._property_cache:
             if predicate in self._property_cache[subject]:
-                self._cache_hits += 1
                 return self._property_cache[subject][predicate]
-        
-        # If not in cache, it wasn't found during initialization
-        self._cache_misses += 1
         return default
     
     def evaluate_batch(self, X: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """Evaluate batch of solutions"""
+        """Evaluate batch of solutions - sequential only"""
         n_solutions = len(X)
         objectives = np.zeros((n_solutions, 6))
         constraints = np.zeros((n_solutions, 3))
         
-        # Use parallel evaluation if enabled
-        if self.config.use_parallel and n_solutions > 10:
-            with ThreadPoolExecutor(max_workers=self.config.n_processes) as executor:
-                futures = []
-                for i, x in enumerate(X):
-                    future = executor.submit(self._evaluate_single, x)
-                    futures.append((i, future))
-                
-                for i, future in futures:
-                    obj, const = future.result()
-                    objectives[i] = obj
-                    constraints[i] = const
-        else:
-            # Sequential evaluation
-            for i, x in enumerate(X):
-                obj, const = self._evaluate_single(x)
-                objectives[i] = obj
-                constraints[i] = const
+        # Always use sequential evaluation to avoid threading issues
+        for i, x in enumerate(X):
+            obj, const = self._evaluate_single(x)
+            objectives[i] = obj
+            constraints[i] = const
         
         # Update statistics
         self._evaluation_count += n_solutions
         
         # Log progress periodically
         if self._evaluation_count % 1000 == 0:
-            if self._cache_hits + self._cache_misses > 0:
-                cache_rate = self._cache_hits / (self._cache_hits + self._cache_misses) * 100
-            else:
-                cache_rate = 0.0
-            logger.info(f"Evaluated {self._evaluation_count} solutions. "
-                       f"Cache hit rate: {cache_rate:.1f}%")
+            logger.info(f"Evaluated {self._evaluation_count} solutions.")
             
             # Log objective ranges
             logger.debug(f"Objective ranges:")
@@ -230,10 +202,10 @@ class EnhancedFitnessEvaluatorV2:
         return objectives, constraints
     
     def _evaluate_single(self, x: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """Evaluate single solution - thread safe"""
+        """Evaluate single solution"""
         config = self.solution_mapper.decode_solution(x)
         
-        # Calculate objectives (no SPARQL queries needed - all from cache)
+        # Calculate objectives (all from cache, no SPARQL queries)
         f1 = self._calculate_total_cost_v2(config)
         f2 = self._calculate_detection_performance_v2(config)
         f3 = self._calculate_latency_v2(config)
