@@ -76,19 +76,20 @@ class BaselineMethod(ABC):
         }
 
 
+
 class RandomSearchBaseline(BaselineMethod):
-    """Random search baseline"""
+    """Random search baseline with constraint awareness"""
     
     def optimize(self) -> pd.DataFrame:
-        """Generate random solutions"""
+        """Generate random solutions with smart initialization"""
         n_samples = self.config.n_random_samples
         logger.info(f"Running Random Search with {n_samples} samples...")
         
         start_time = time.time()
         
         for i in range(n_samples):
-            # Generate random solution
-            x = np.random.rand(11)
+            # Smart random generation with higher chance of feasibility
+            x = self._generate_smart_random_solution()
             
             # Evaluate
             objectives, constraints = self.evaluator._evaluate_single(x)
@@ -100,7 +101,8 @@ class RandomSearchBaseline(BaselineMethod):
             
             # Progress logging
             if (i + 1) % 100 == 0:
-                logger.info(f"  Evaluated {i + 1} random solutions...")
+                feasible_count = sum(1 for r in self.results if r['is_feasible'])
+                logger.info(f"  Evaluated {i + 1} random solutions... ({feasible_count} feasible)")
         
         self.execution_time = time.time() - start_time
         
@@ -113,10 +115,47 @@ class RandomSearchBaseline(BaselineMethod):
         logger.info(f"  Found {df['is_feasible'].sum()} feasible solutions")
         
         return df
-
+    
+    def _generate_smart_random_solution(self) -> np.ndarray:
+        """Generate solution with higher probability of feasibility"""
+        x = np.zeros(11)
+        
+        # Sensor: prefer cheaper options (higher index)
+        x[0] = np.random.beta(2, 1)  # Bias towards higher values (cheaper sensors)
+        
+        # Data rate: moderate
+        x[1] = np.random.uniform(0.3, 0.7)
+        
+        # LOD: prefer Meso (middle option)
+        x[2] = np.random.choice([0.33, 0.5, 0.67], p=[0.2, 0.6, 0.2])
+        x[3] = x[2]  # Same LOD
+        
+        # Algorithm: any
+        x[4] = np.random.random()
+        
+        # Detection threshold: moderate to high
+        x[5] = np.random.uniform(0.5, 0.8)
+        
+        # Storage: prefer cheaper cloud
+        x[6] = np.random.choice([0.0, 0.5, 1.0], p=[0.6, 0.3, 0.1])  # Bias to cloud
+        
+        # Communication: moderate
+        x[7] = np.random.uniform(0.3, 0.7)
+        
+        # Deployment: prefer cloud
+        x[8] = np.random.choice([0.0, 0.5, 1.0], p=[0.2, 0.3, 0.5])  # Bias to cloud
+        
+        # Crew size: small to medium
+        x[9] = np.random.uniform(0.1, 0.5)  # 1-5 people
+        
+        # Inspection cycle: monthly to quarterly
+        x[10] = np.random.uniform(0.08, 0.25)  # 30-90 days
+        
+        return x
+    
 
 class GridSearchBaseline(BaselineMethod):
-    """Grid search on key variables"""
+    """Grid search on key variables with feasible focus"""
     
     def optimize(self) -> pd.DataFrame:
         """Grid search on discrete variables"""
@@ -125,34 +164,38 @@ class GridSearchBaseline(BaselineMethod):
         
         start_time = time.time()
         
-        # Select subsets for tractability
-        n_sensors = min(resolution, len(self.evaluator.solution_mapper.sensors))
-        n_algos = min(resolution, len(self.evaluator.solution_mapper.algorithms))
+        # Focus on likely feasible regions
+        # Cheaper sensors (IoT, Vehicle)
+        sensor_indices = [0.6, 0.8, 1.0]  # Later indices = cheaper sensors
         
-        sensors_subset = self.evaluator.solution_mapper.sensors[:n_sensors]
-        algos_subset = self.evaluator.solution_mapper.algorithms[:n_algos]
-        lod_options = ['Micro', 'Meso', 'Macro']
-        deployment_options = self.evaluator.solution_mapper.deployments[:3]
+        # Algorithms - all types
+        algo_indices = np.linspace(0, 1, min(resolution, 5))
+        
+        # LOD - focus on Meso
+        lod_values = [0.33, 0.5, 0.67]  # Micro, Meso, Macro
+        
+        # Deployment - prefer cloud (cheaper)
+        deployment_values = [0.5, 0.75, 1.0]  # Edge, Hybrid, Cloud
         
         solution_id = 0
         
-        for sensor_idx, sensor in enumerate(sensors_subset):
-            for algo_idx, algo in enumerate(algos_subset):
-                for geo_lod in lod_options:
-                    for deployment_idx, deployment in enumerate(deployment_options):
+        for sensor_idx in sensor_indices:
+            for algo_idx in algo_indices:
+                for lod in lod_values:
+                    for deployment in deployment_values:
                         solution_id += 1
                         
                         # Create solution vector
                         x = np.zeros(11)
-                        x[0] = sensor_idx / max(n_sensors - 1, 1)
+                        x[0] = sensor_idx
                         x[1] = 0.5  # Medium data rate
-                        x[2] = lod_options.index(geo_lod) / 2
-                        x[3] = x[2]  # Same LOD
-                        x[4] = algo_idx / max(n_algos - 1, 1)
+                        x[2] = lod
+                        x[3] = lod  # Same LOD
+                        x[4] = algo_idx
                         x[5] = 0.7  # High threshold
-                        x[6] = 0.5  # Middle storage
+                        x[6] = 0.0  # Cloud storage (cheapest)
                         x[7] = 0.5  # Middle comm
-                        x[8] = deployment_idx / max(len(deployment_options) - 1, 1)
+                        x[8] = deployment
                         x[9] = 0.3  # 3-person crew
                         x[10] = 0.1  # ~36 day cycle
                         
@@ -176,7 +219,7 @@ class GridSearchBaseline(BaselineMethod):
         logger.info(f"  Found {df['is_feasible'].sum()} feasible solutions")
         
         return df
-
+    
 
 class WeightedSumBaseline(BaselineMethod):
     """Single-objective weighted sum optimization"""
@@ -290,98 +333,35 @@ class WeightedSumBaseline(BaselineMethod):
         return np.clip(norm, 0, 1)
 
 
+
 class ExpertHeuristicBaseline(BaselineMethod):
-    """Expert-defined configurations"""
-    
-    def optimize(self) -> pd.DataFrame:
-        """Generate expert-recommended configurations"""
-        logger.info("Running Expert Heuristic baseline...")
-        
-        start_time = time.time()
-        
-        # Define expert configurations
-        expert_configs = [
-            ("HighPerformance", self._high_performance_config()),
-            ("LowCost", self._low_cost_config()),
-            ("Balanced", self._balanced_config()),
-            ("Sustainable", self._sustainable_config()),
-            ("Reliable", self._reliable_config()),
-            ("RealTime", self._real_time_config()),
-            ("LongRange", self._long_range_config()),
-            ("HighPrecision", self._high_precision_config()),
-            ("MinimalDisruption", self._minimal_disruption_config()),
-            ("FiberOptic", self._fiber_optic_config())
-        ]
-        
-        for idx, (name, x) in enumerate(expert_configs):
-            # Evaluate
-            objectives, constraints = self.evaluator._evaluate_single(x)
-            
-            # Store result
-            result = self._create_result_entry(x, objectives, constraints, idx + 1)
-            result['method'] = f"ExpertHeuristic-{name}"
-            self.results.append(result)
-        
-        self.execution_time = time.time() - start_time
-        
-        # Update time
-        for result in self.results:
-            result['time_seconds'] = self.execution_time
-        
-        df = pd.DataFrame(self.results)
-        logger.info(f"Expert Heuristic completed in {self.execution_time:.2f} seconds")
-        logger.info(f"  Generated {len(df)} expert configurations")
-        logger.info(f"  {df['is_feasible'].sum()} are feasible")
-        
-        return df
-    
-    def _high_performance_config(self) -> np.ndarray:
-        """Maximum detection performance"""
-        return np.array([0.1, 0.9, 0, 0, 0.1, 0.8, 0.8, 0.9, 0.2, 0.5, 0.05])
+    """Expert-defined configurations with feasibility focus"""
     
     def _low_cost_config(self) -> np.ndarray:
-        """Minimum cost configuration"""
-        return np.array([0.9, 0.2, 0.9, 0.9, 0.9, 0.5, 0.2, 0.2, 0.8, 0.1, 0.5])
+        """Minimum cost configuration - improved"""
+        # IoT sensor (cheapest), minimal everything
+        return np.array([1.0, 0.2, 0.67, 0.67, 0.7, 0.5, 0.0, 0.5, 1.0, 0.2, 0.25])
     
     def _balanced_config(self) -> np.ndarray:
-        """Balanced across all objectives"""
-        return np.array([0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.3, 0.2])
+        """Balanced across all objectives - improved"""
+        # Vehicle sensor, moderate settings
+        return np.array([0.8, 0.5, 0.5, 0.5, 0.5, 0.6, 0.0, 0.5, 0.8, 0.3, 0.1])
+    
+    def _high_performance_config(self) -> np.ndarray:
+        """Maximum detection performance - adjusted for feasibility"""
+        # MMS but with cost controls
+        return np.array([0.3, 0.7, 0.33, 0.33, 0.2, 0.8, 0.0, 0.8, 0.5, 0.4, 0.08])
     
     def _sustainable_config(self) -> np.ndarray:
-        """Minimum environmental impact"""
-        return np.array([0.7, 0.3, 0.7, 0.7, 0.6, 0.5, 0.3, 0.3, 0.9, 0.2, 0.3])
+        """Minimum environmental impact - improved"""
+        # UAV with efficient settings
+        return np.array([0.5, 0.3, 0.5, 0.5, 0.6, 0.5, 0.0, 0.5, 1.0, 0.2, 0.15])
     
     def _reliable_config(self) -> np.ndarray:
-        """Maximum system reliability"""
-        return np.array([0.2, 0.4, 0.3, 0.3, 0.4, 0.6, 0.6, 0.7, 0.4, 0.4, 0.15])
+        """Maximum system reliability - improved"""
+        # Balanced with redundancy
+        return np.array([0.4, 0.4, 0.5, 0.5, 0.4, 0.6, 0.5, 0.7, 0.8, 0.3, 0.1])
     
-    def _real_time_config(self) -> np.ndarray:
-        """Minimum latency for real-time response"""
-        return np.array([0.3, 0.8, 0.7, 0.7, 0.3, 0.7, 0.7, 0.8, 0.9, 0.3, 0.1])
-    
-    def _long_range_config(self) -> np.ndarray:
-        """Maximum coverage efficiency"""
-        return np.array([0.15, 0.7, 0.8, 0.8, 0.5, 0.6, 0.5, 0.6, 0.5, 0.2, 0.4])
-    
-    def _high_precision_config(self) -> np.ndarray:
-        """Maximum measurement precision"""
-        return np.array([0.05, 0.6, 0, 0, 0.2, 0.9, 0.7, 0.7, 0.3, 0.4, 0.08])
-    
-    def _minimal_disruption_config(self) -> np.ndarray:
-        """Minimum traffic disruption"""
-        return np.array([0.6, 0.4, 0.6, 0.6, 0.7, 0.5, 0.4, 0.4, 0.7, 0.15, 0.7])
-    
-    def _fiber_optic_config(self) -> np.ndarray:
-        """Fiber optic sensor configuration"""
-        # Find FOS sensor index
-        fos_idx = 0.6  # Default
-        for i, sensor in enumerate(self.evaluator.solution_mapper.sensors):
-            if 'FOS' in sensor or 'Fiber' in sensor:
-                fos_idx = i / len(self.evaluator.solution_mapper.sensors)
-                break
-        
-        return np.array([fos_idx, 0.1, 0, 0, 0.3, 0.8, 0.7, 0.8, 0.5, 0.1, 0.9])
-
 
 class BaselineRunner:
     """Orchestrates all baseline methods"""

@@ -362,20 +362,20 @@ class Visualizer:
         
         # Normalize objectives
         objectives = ['f1_total_cost_USD', 'detection_recall', 'f3_latency_seconds',
-                     'f4_traffic_disruption_hours', 'f5_carbon_emissions_kgCO2e_year', 
-                     'system_MTBF_hours']
+                    'f4_traffic_disruption_hours', 'f5_carbon_emissions_kgCO2e_year', 
+                    'system_MTBF_hours']
         
         for obj in objectives:
             if obj in ['detection_recall', 'system_MTBF_hours']:
                 # Maximize these
                 plot_df[obj] = (plot_df[obj] - plot_df[obj].min()) / \
-                              (plot_df[obj].max() - plot_df[obj].min())
+                            (plot_df[obj].max() - plot_df[obj].min())
             else:
                 # Minimize these
                 plot_df[obj] = 1 - (plot_df[obj] - plot_df[obj].min()) / \
-                                   (plot_df[obj].max() - plot_df[obj].min())
+                                    (plot_df[obj].max() - plot_df[obj].min())
         
-        # Rename columns
+        # Rename columns - 改为英文
         display_names = {
             'f1_total_cost_USD': 'Cost↓',
             'detection_recall': 'Recall↑',
@@ -395,8 +395,8 @@ class Visualizer:
             sensor_df = plot_df[plot_df['Sensor'] == sensor]
             if len(sensor_df) >= 3:
                 indices = [sensor_df.index[0], 
-                          sensor_df.index[len(sensor_df)//2], 
-                          sensor_df.index[-1]]
+                        sensor_df.index[len(sensor_df)//2], 
+                        sensor_df.index[-1]]
             else:
                 indices = sensor_df.index.tolist()
             selected_indices.extend(indices)
@@ -406,14 +406,14 @@ class Visualizer:
         # Create parallel coordinates
         from pandas.plotting import parallel_coordinates
         parallel_coordinates(plot_df_filtered, 'Sensor', 
-                           cols=list(display_names.values()),
-                           colormap='tab10', alpha=0.7, linewidth=2, ax=ax)
+                        cols=list(display_names.values()),
+                        colormap='tab10', alpha=0.7, linewidth=2, ax=ax)
         
         ax.set_ylabel('Normalized Value [0,1]', fontsize=10)
         ax.grid(True, alpha=0.3, axis='y')
         ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize=8)
         ax.set_ylim(-0.05, 1.05)
-    
+
     def _save_figure(self, fig, filename: str):
         """Save figure in multiple formats"""
         for fmt in self.config.figure_format:
@@ -423,17 +423,17 @@ class Visualizer:
         plt.close(fig)
         logger.info(f"Saved figure: {filename}")
     
-    def _plot_technology_matrix(self, df: pd.DataFrame, ax):
-        """绘制技术性能矩阵"""
-        # 按传感器类型分组计算平均值
+        def _plot_technology_matrix(self, df: pd.DataFrame, ax):
+        """Plot technology performance matrix"""
+        # Group by sensor type
         df['sensor_type'] = df['sensor'].str.extract(r'(\w+)_')[0]
         
         metrics = ['detection_recall', 'f1_total_cost_USD', 'f3_latency_seconds', 
                 'f5_carbon_emissions_kgCO2e_year']
-        metric_names = ['召回率', '成本 (k$)', '延迟 (s)', '碳排放 (ton/yr)']
+        metric_names = ['Recall', 'Cost (k$)', 'Latency (s)', 'Carbon (ton/yr)']  # 英文
         
-        # 创建性能矩阵
-        sensor_types = df['sensor_type'].unique()[:6]  # 限制显示
+        # Create performance matrix
+        sensor_types = df['sensor_type'].unique()[:6]  # Limit display
         matrix_data = []
         
         for sensor_type in sensor_types:
@@ -441,65 +441,138 @@ class Visualizer:
             row = []
             for metric in metrics:
                 if metric == 'f1_total_cost_USD':
-                    value = sensor_df[metric].mean() / 1000  # 转换为k$
+                    value = sensor_df[metric].mean() / 1000  # Convert to k$
                 elif metric == 'f5_carbon_emissions_kgCO2e_year':
-                    value = sensor_df[metric].mean() / 1000  # 转换为吨
+                    value = sensor_df[metric].mean() / 1000  # Convert to tons
                 else:
                     value = sensor_df[metric].mean()
                 row.append(value)
             matrix_data.append(row)
         
-        # 归一化到0-1
+        # Normalize to 0-1
         matrix_data = np.array(matrix_data)
         for i in range(matrix_data.shape[1]):
             col = matrix_data[:, i]
-            if metrics[i] in ['detection_recall']:  # 越大越好
+            if metrics[i] in ['detection_recall']:  # Higher is better
                 matrix_data[:, i] = (col - col.min()) / (col.max() - col.min() + 1e-10)
-            else:  # 越小越好
+            else:  # Lower is better
                 matrix_data[:, i] = 1 - (col - col.min()) / (col.max() - col.min() + 1e-10)
         
-        # 绘制热力图
+        # Plot heatmap
         im = ax.imshow(matrix_data, cmap='RdYlGn', aspect='auto', vmin=0, vmax=1)
         
-        # 设置标签
+        # Set labels
         ax.set_xticks(np.arange(len(metric_names)))
         ax.set_yticks(np.arange(len(sensor_types)))
         ax.set_xticklabels(metric_names, rotation=45, ha='right')
         ax.set_yticklabels(sensor_types)
         
-        # 添加数值标签
+        # Add value labels
         for i in range(len(sensor_types)):
             for j in range(len(metrics)):
                 text = ax.text(j, i, f'{matrix_data[i, j]:.2f}',
                             ha="center", va="center", color="black", fontsize=8)
         
-        # 添加颜色条
+        # Add colorbar
         cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-        cbar.set_label('归一化性能', fontsize=9)
+        cbar.set_label('Normalized Performance', fontsize=9)  # 英文
 
     def _plot_solution_distribution(self, df: pd.DataFrame, ax):
-        """绘制解决方案分布"""
-        # 2D密度图：成本 vs 召回率
+        """Plot solution distribution"""
+        # 2D density plot: Cost vs Recall
         x = df['f1_total_cost_USD'] / 1000  # k$
         y = df['detection_recall']
         
-        # 创建2D直方图
+        # Create 2D histogram
         hist, xedges, yedges = np.histogram2d(x, y, bins=20)
         
-        # 绘制
+        # Plot
         im = ax.imshow(hist.T, origin='lower', aspect='auto', 
                     extent=[xedges[0], xedges[-1], yedges[0], yedges[-1]],
                     cmap='Blues', interpolation='gaussian')
         
-        # 添加散点
+        # Add scatter points
         ax.scatter(x, y, c='red', s=10, alpha=0.5, edgecolors='none')
         
-        ax.set_xlabel('总成本 (k$)')
-        ax.set_ylabel('检测召回率')
+        ax.set_xlabel('Total Cost (k$)')  # 英文
+        ax.set_ylabel('Detection Recall')  # 英文
         
-        # 添加颜色条
+        # Add colorbar
         cbar = plt.colorbar(im, ax=ax)
-        cbar.set_label('解决方案数量', fontsize=9)
+        cbar.set_label('Solution Count', fontsize=9)  # 英文
+
+    def _plot_representative_solutions(self, df: pd.DataFrame, ax):
+        """Plot representative solutions table"""
+        # Select representative solutions
+        representatives = []
+        
+        # Lowest cost
+        if len(df) > 0:
+            min_cost_idx = df['f1_total_cost_USD'].argmin()
+            representatives.append(('Lowest Cost', df.iloc[min_cost_idx]))  # 英文
+        
+        # Highest recall
+        if len(df) > 0:
+            max_recall_idx = df['detection_recall'].argmax()
+            representatives.append(('Highest Recall', df.iloc[max_recall_idx]))  # 英文
+        
+        # Lowest carbon
+        if 'f5_carbon_emissions_kgCO2e_year' in df.columns and len(df) > 0:
+            min_carbon_idx = df['f5_carbon_emissions_kgCO2e_year'].argmin()
+            representatives.append(('Lowest Carbon', df.iloc[min_carbon_idx]))  # 英文
+        
+        # Balanced solution
+        if len(df) > 0:
+            norm_df = df.copy()
+            for col in ['f1_total_cost_USD', 'f3_latency_seconds', 'f4_traffic_disruption_hours', 
+                        'f5_carbon_emissions_kgCO2e_year']:
+                if col in norm_df.columns:
+                    norm_df[col] = (norm_df[col] - norm_df[col].min()) / (norm_df[col].max() - norm_df[col].min() + 1e-10)
+            norm_df['detection_recall'] = 1 - norm_df['detection_recall']
+            
+            norm_sum = norm_df[['f1_total_cost_USD', 'detection_recall', 'f3_latency_seconds']].sum(axis=1)
+            balanced_idx = norm_sum.argmin()
+            representatives.append(('Balanced', df.iloc[balanced_idx]))  # 英文
+        
+        # Create table data
+        if representatives:
+            table_data = []
+            for name, sol in representatives:
+                row = [
+                    name,
+                    sol['sensor'].split('_')[0],
+                    sol['algorithm'].split('_')[0],
+                    f"${sol['f1_total_cost_USD']/1000:.0f}k",
+                    f"{sol['detection_recall']:.3f}",
+                    f"{sol['f3_latency_seconds']:.1f}s",
+                    f"{sol['f5_carbon_emissions_kgCO2e_year']/1000:.1f}t" if 'f5_carbon_emissions_kgCO2e_year' in sol else 'N/A'
+                ]
+                table_data.append(row)
+            
+            columns = ['Solution Type', 'Sensor', 'Algorithm', 'Cost', 'Recall', 'Latency', 'Carbon']  # 英文
+            
+            # Draw table
+            ax.axis('tight')
+            ax.axis('off')
+            table = ax.table(cellText=table_data, colLabels=columns,
+                            cellLoc='center', loc='center',
+                            colWidths=[0.15, 0.15, 0.15, 0.12, 0.12, 0.12, 0.12])
+            table.auto_set_font_size(False)
+            table.set_fontsize(9)
+            table.scale(1, 1.5)
+            
+            # Set table style
+            for i in range(len(columns)):
+                table[(0, i)].set_facecolor('#4CAF50')
+                table[(0, i)].set_text_props(weight='bold', color='white')
+            
+            for i in range(1, len(table_data) + 1):
+                for j in range(len(columns)):
+                    if i % 2 == 0:
+                        table[(i, j)].set_facecolor('#f0f0f0')
+        else:
+            ax.text(0.5, 0.5, 'No Data Available', ha='center', va='center', fontsize=12)  # 英文
+            ax.axis('off')
 
     def _plot_representative_solutions(self, df: pd.DataFrame, ax):
         """绘制代表性解决方案表格"""
