@@ -121,7 +121,7 @@ class RMTwinOptimizer:
                 ref_dirs = get_reference_directions("das-dennis", 6, n_partitions=3)
             
             # 确保种群大小至少与参考方向一样大
-            pop_size = max(self.config.population_size, len(ref_dirs) + 20)
+            pop_size = max(self.config.population_size, len(ref_dirs) + 50)
             
             algorithm = NSGA3(
                 ref_dirs=ref_dirs,

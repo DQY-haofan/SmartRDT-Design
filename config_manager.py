@@ -40,9 +40,9 @@ class ConfigManager:
     min_recall_threshold: float = 0.6  # 从0.70进一步降低
     max_latency_seconds: float = 500.0  # 从180增加到300秒
     max_disruption_hours: float = 300.0  # 从100增加到300
-    max_energy_kwh_year: float = 150_000  # 从50k增加到150k
-    min_mtbf_hours: float = 2_000  # 从5000降低到2000（约3个月）
-    max_carbon_emissions_kgCO2e_year: float = 200_000  # 增加到200k
+    max_energy_kwh_year: float = 200_000  # 从50k增加到150k
+    min_mtbf_hours: float = 1_500  # 从5000降低到2000（约3个月）
+    max_carbon_emissions_kgCO2e_year: float = 300_000  # 增加到200k
     
     # 额外的运营参数
     apply_seasonal_adjustments: bool = True
@@ -73,7 +73,7 @@ class ConfigManager:
     # 优化参数
     n_objectives: int = 6
     population_size: int = 300
-    n_generations: int = 100
+    n_generations: int = 200
     crossover_prob: float = 0.9
     crossover_eta: float = 20
     mutation_eta: float = 20
