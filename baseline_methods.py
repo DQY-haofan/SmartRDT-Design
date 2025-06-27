@@ -391,10 +391,10 @@ class BaselineRunner:
         self.config = config
         
         # Import here to avoid circular import
-        from evaluation import EnhancedFitnessEvaluatorV2
+        from evaluation import EnhancedFitnessEvaluatorV3  # 改为 V3
         
         # Initialize shared evaluator
-        self.evaluator = EnhancedFitnessEvaluatorV2(ontology_graph, config)
+        self.evaluator = EnhancedFitnessEvaluatorV3(ontology_graph, config)  # 改为 V3
         
         # Initialize baseline methods
         self.methods = {
