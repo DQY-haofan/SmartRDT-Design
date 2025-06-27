@@ -423,7 +423,7 @@ class Visualizer:
         plt.close(fig)
         logger.info(f"Saved figure: {filename}")
     
-        def _plot_technology_matrix(self, df: pd.DataFrame, ax):
+    def _plot_technology_matrix(self, df: pd.DataFrame, ax):
         """Plot technology performance matrix"""
         # Group by sensor type
         df['sensor_type'] = df['sensor'].str.extract(r'(\w+)_')[0]
