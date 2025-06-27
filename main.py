@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-RMTwin Multi-Objective Optimization Framework
-Main Entry Point - Fixed version
+RMTwin多目标优化框架
+主入口点 - 修复版
 """
 
 import argparse
@@ -10,7 +10,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-# Import core modules
+# 导入核心模块
 from config_manager import ConfigManager
 from ontology_manager import OntologyManager
 from optimization_core import RMTwinOptimizer
@@ -20,37 +20,45 @@ from utils import setup_logging, save_results_summary
 
 
 def main():
-    """Main execution function"""
-    # Parse arguments
-    parser = argparse.ArgumentParser(description='RMTwin Multi-Objective Optimization')
+    """主执行函数"""
+    # 解析参数
+    parser = argparse.ArgumentParser(description='RMTwin多目标优化')
     parser.add_argument('--config', type=str, default='config.json',
-                       help='Configuration file path')
+                       help='配置文件路径')
     parser.add_argument('--skip-optimization', action='store_true',
-                       help='Skip NSGA-II optimization')
+                       help='跳过NSGA-II优化')
     parser.add_argument('--skip-baselines', action='store_true',
-                       help='Skip baseline methods')
+                       help='跳过基线方法')
     parser.add_argument('--skip-visualization', action='store_true',
-                       help='Skip visualization generation')
+                       help='跳过可视化生成')
     parser.add_argument('--debug', action='store_true',
-                       help='Enable debug logging')
+                       help='启用调试日志')
     args = parser.parse_args()
     
-    # Setup
+    # 设置
     start_time = time.time()
     config = ConfigManager(args.config)
     logger = setup_logging(debug=args.debug, log_dir=config.log_dir)
     
     logger.info("="*80)
-    logger.info("RMTwin Multi-Objective Optimization Framework")
-    logger.info(f"Configuration: {config.n_objectives} objectives, "
-               f"{config.n_generations} generations, "
-               f"{config.population_size} population")
-    logger.info(f"Start time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info("RMTwin多目标优化框架")
+    logger.info(f"配置: {config.n_objectives} 个目标, "
+               f"{config.n_generations} 代, "
+               f"{config.population_size} 种群大小")
+    logger.info(f"开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info("="*80)
     
+    # 显示关键约束设置
+    logger.info("\n关键约束设置:")
+    logger.info(f"  预算上限: ${config.budget_cap_usd:,.0f}")
+    logger.info(f"  最小召回率: {config.min_recall_threshold}")
+    logger.info(f"  最大延迟: {config.max_latency_seconds} 秒")
+    logger.info(f"  最小MTBF: {config.min_mtbf_hours} 小时")
+    logger.info(f"  最大碳排放: {config.max_carbon_emissions_kgCO2e_year} kgCO2e/年")
+    
     try:
-        # Step 1: Load and populate ontology
-        logger.info("\nStep 1: Loading ontology...")
+        # 步骤1：加载和填充本体
+        logger.info("\n步骤1：加载本体...")
         ontology_manager = OntologyManager()
         ontology_graph = ontology_manager.populate_from_csv_files(
             config.sensor_csv,
@@ -59,104 +67,113 @@ def main():
             config.cost_benefit_csv
         )
         
-        # Save populated ontology
+        # 保存填充的本体
         ontology_path = config.output_dir / 'populated_ontology.ttl'
         ontology_graph.serialize(destination=str(ontology_path), format='turtle')
-        logger.info(f"Saved populated ontology to {ontology_path}")
+        logger.info(f"保存填充的本体到 {ontology_path}")
         
-        # Initialize results storage
+        # 初始化结果存储
         all_results = {}
         
-        # Step 2: Run NSGA-II optimization
+        # 步骤2：运行NSGA-III优化
         if not args.skip_optimization:
-            logger.info("\nStep 2: Running NSGA-II optimization...")
+            logger.info("\n步骤2：运行NSGA-III优化...")
             optimizer = RMTwinOptimizer(ontology_graph, config)
             
             optimization_start = time.time()
             pareto_results, optimization_history = optimizer.optimize()
             optimization_time = time.time() - optimization_start
             
-            # Save results
-            pareto_path = config.output_dir / 'pareto_solutions_6d_enhanced.csv'
+            # 保存结果
+            pareto_path = config.output_dir / 'pareto_solutions_6obj_fixed.csv'
             if len(pareto_results) > 0:
                 pareto_results.to_csv(pareto_path, index=False)
-                logger.info(f"Found {len(pareto_results)} Pareto-optimal solutions")
+                logger.info(f"找到 {len(pareto_results)} 个Pareto最优解")
+                
+                # 显示摘要统计
+                logger.info("\nPareto前沿摘要:")
+                logger.info(f"  成本范围: ${pareto_results['f1_total_cost_USD'].min():,.0f} - "
+                           f"${pareto_results['f1_total_cost_USD'].max():,.0f}")
+                logger.info(f"  召回率范围: {pareto_results['detection_recall'].min():.3f} - "
+                           f"{pareto_results['detection_recall'].max():.3f}")
+                logger.info(f"  碳排放范围: {pareto_results['f5_carbon_emissions_kgCO2e_year'].min():.0f} - "
+                           f"{pareto_results['f5_carbon_emissions_kgCO2e_year'].max():.0f} kgCO2e/年")
             else:
-                logger.warning("No Pareto-optimal solutions found!")
-            logger.info(f"Optimization time: {optimization_time:.2f} seconds")
+                logger.warning("未找到Pareto最优解！")
+            logger.info(f"优化时间: {optimization_time:.2f} 秒")
             
-            all_results['nsga2'] = {
+            all_results['nsga3'] = {
                 'dataframe': pareto_results,
                 'time': optimization_time,
                 'history': optimization_history
             }
         
-        # Step 3: Run baseline methods
+        # 步骤3：运行基线方法
         if not args.skip_baselines:
-            logger.info("\nStep 3: Running baseline methods...")
+            logger.info("\n步骤3：运行基线方法...")
             baseline_runner = BaselineRunner(ontology_graph, config)
             
             baseline_start = time.time()
             baseline_results = baseline_runner.run_all_methods()
             baseline_time = time.time() - baseline_start
             
-            # Save baseline results
+            # 保存基线结果
             for method_name, df in baseline_results.items():
-                baseline_path = config.output_dir / f'baseline_{method_name}.csv'
-                if len(df) > 0:
+                if df is not None and not df.empty:
+                    baseline_path = config.output_dir / f'baseline_{method_name}.csv'
                     df.to_csv(baseline_path, index=False)
                     if 'is_feasible' in df.columns:
-                        logger.info(f"{method_name}: {len(df)} solutions "
-                                  f"({df['is_feasible'].sum()} feasible)")
+                        logger.info(f"{method_name}: {len(df)} 个解 "
+                                  f"({df['is_feasible'].sum()} 个可行)")
                     else:
-                        logger.info(f"{method_name}: {len(df)} solutions")
+                        logger.info(f"{method_name}: {len(df)} 个解")
                 else:
-                    logger.info(f"{method_name}: No solutions generated")
+                    logger.info(f"{method_name}: 未生成解")
             
             all_results['baselines'] = {
                 'dataframes': baseline_results,
                 'time': baseline_time
             }
         
-        # Step 4: Generate visualizations
+        # 步骤4：生成可视化
         if not args.skip_visualization:
-            logger.info("\nStep 4: Generating visualizations...")
+            logger.info("\n步骤4：生成可视化...")
             visualizer = Visualizer(config)
             
-            # Load results if needed
+            # 如果需要，加载结果
             if args.skip_optimization:
-                pareto_path = config.output_dir / 'pareto_solutions_6d_enhanced.csv'
+                pareto_path = config.output_dir / 'pareto_solutions_6obj_fixed.csv'
                 if pareto_path.exists():
                     import pandas as pd
                     pareto_results = pd.read_csv(pareto_path)
-                    all_results['nsga2'] = {'dataframe': pareto_results}
+                    all_results['nsga3'] = {'dataframe': pareto_results}
             
-            if 'nsga2' in all_results and len(all_results['nsga2']['dataframe']) > 0:
+            if 'nsga3' in all_results and len(all_results['nsga3']['dataframe']) > 0:
                 visualizer.create_all_figures(
-                    pareto_results=all_results['nsga2']['dataframe'],
+                    pareto_results=all_results['nsga3']['dataframe'],
                     baseline_results=all_results.get('baselines', {}).get('dataframes')
                 )
-                logger.info("Visualizations completed")
+                logger.info("可视化完成")
             else:
-                logger.warning("No solutions available for visualization")
+                logger.warning("没有可用于可视化的解")
         
-        # Step 5: Generate comprehensive report
-        logger.info("\nStep 5: Generating final report...")
+        # 步骤5：生成综合报告
+        logger.info("\n步骤5：生成最终报告...")
         save_results_summary(all_results, config)
         
-        # Final summary
+        # 最终摘要
         total_time = time.time() - start_time
         logger.info("\n" + "="*80)
-        logger.info("OPTIMIZATION COMPLETE")
-        logger.info(f"Total execution time: {total_time:.2f} seconds")
-        logger.info(f"Results saved to: {config.output_dir}")
+        logger.info("优化完成")
+        logger.info(f"总执行时间: {total_time:.2f} 秒")
+        logger.info(f"结果保存到: {config.output_dir}")
         logger.info("="*80)
         
     except Exception as e:
-        logger.error(f"Fatal error: {str(e)}", exc_info=True)
+        logger.error(f"致命错误: {str(e)}", exc_info=True)
         raise
     finally:
-        # Cleanup
+        # 清理
         logging.shutdown()
 
 
