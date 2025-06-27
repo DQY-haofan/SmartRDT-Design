@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Enhanced Fitness Evaluation Module V2
-Complete implementation with all advanced features
+Fixed version with thread-safe SPARQL queries
 """
 
 import numpy as np
@@ -13,6 +13,7 @@ from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor
 from rdflib import Graph, Namespace, URIRef
 from rdflib.namespace import RDFS, RDF, OWL, XSD
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +100,7 @@ class SolutionMapper:
 
 
 class EnhancedFitnessEvaluatorV2:
-    """Enhanced fitness evaluator with complete functionality"""
+    """Enhanced fitness evaluator with thread-safe implementation"""
     
     def __init__(self, ontology_graph: Graph, config):
         self.g = ontology_graph
@@ -108,6 +109,11 @@ class EnhancedFitnessEvaluatorV2:
         
         # Component property cache
         self._property_cache = {}
+        
+        # Thread lock for SPARQL queries
+        self._sparql_lock = threading.RLock()
+        
+        # Pre-cache all properties before parallel execution
         self._initialize_cache()
         
         # Statistics
@@ -116,7 +122,7 @@ class EnhancedFitnessEvaluatorV2:
         self._cache_misses = 0
         
     def _initialize_cache(self):
-        """Cache frequently accessed properties"""
+        """Cache frequently accessed properties - thread safe"""
         logger.info("Initializing property cache...")
         
         # Define properties to cache
@@ -131,55 +137,50 @@ class EnhancedFitnessEvaluatorV2:
             'hasRecall', 'hasPrecision', 'hasFPS'
         ]
         
-        # Query all properties at once
-        for prop in properties:
-            query = f"""
-            SELECT ?subject ?value WHERE {{
-                ?subject rdtco:{prop} ?value .
-            }}
-            """
-            
-            for row in self.g.query(query):
-                subject = str(row.subject)
-                if subject not in self._property_cache:
-                    self._property_cache[subject] = {}
+        # Cache all component properties in one go
+        all_components = (
+            self.solution_mapper.sensors + 
+            self.solution_mapper.algorithms + 
+            self.solution_mapper.storage_systems + 
+            self.solution_mapper.comm_systems + 
+            self.solution_mapper.deployments
+        )
+        
+        # Execute all queries sequentially during initialization
+        with self._sparql_lock:
+            for component in all_components:
+                if component not in self._property_cache:
+                    self._property_cache[component] = {}
                 
-                try:
-                    self._property_cache[subject][prop] = float(row.value)
-                except:
-                    self._property_cache[subject][prop] = str(row.value)
+                for prop in properties:
+                    query = f"""
+                    SELECT ?value WHERE {{
+                        <{component}> rdtco:{prop} ?value .
+                    }}
+                    """
+                    
+                    try:
+                        for row in self.g.query(query):
+                            try:
+                                self._property_cache[component][prop] = float(row.value)
+                            except:
+                                self._property_cache[component][prop] = str(row.value)
+                    except Exception:
+                        # Skip if property doesn't exist
+                        pass
         
         logger.info(f"Cached properties for {len(self._property_cache)} components")
     
     def _query_property(self, subject: str, predicate: str, default=None):
-        """Query property value with caching"""
-        # Check cache first
+        """Query property value with caching - thread safe"""
+        # Always check cache first (no SPARQL needed)
         if subject in self._property_cache:
             if predicate in self._property_cache[subject]:
                 self._cache_hits += 1
                 return self._property_cache[subject][predicate]
         
-        # Query if not cached
+        # If not in cache, it wasn't found during initialization
         self._cache_misses += 1
-        query = f"""
-        SELECT ?value WHERE {{
-            <{subject}> rdtco:{predicate} ?value .
-        }}
-        """
-        
-        for row in self.g.query(query):
-            try:
-                value = float(row.value)
-            except:
-                value = str(row.value)
-            
-            # Update cache
-            if subject not in self._property_cache:
-                self._property_cache[subject] = {}
-            self._property_cache[subject][predicate] = value
-            
-            return value
-        
         return default
     
     def evaluate_batch(self, X: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -229,10 +230,10 @@ class EnhancedFitnessEvaluatorV2:
         return objectives, constraints
     
     def _evaluate_single(self, x: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """Evaluate single solution"""
+        """Evaluate single solution - thread safe"""
         config = self.solution_mapper.decode_solution(x)
         
-        # Calculate objectives
+        # Calculate objectives (no SPARQL queries needed - all from cache)
         f1 = self._calculate_total_cost_v2(config)
         f2 = self._calculate_detection_performance_v2(config)
         f3 = self._calculate_latency_v2(config)
