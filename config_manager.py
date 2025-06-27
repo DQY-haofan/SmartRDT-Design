@@ -37,7 +37,7 @@ class ConfigManager:
     carbon_intensity_factor: float = 0.417
     
     # 约束 - 关键调整以找到可行解
-    min_recall_threshold: float = 0.65  # 从0.70进一步降低
+    min_recall_threshold: float = 0.6  # 从0.70进一步降低
     max_latency_seconds: float = 300.0  # 从180增加到300秒
     max_disruption_hours: float = 300.0  # 从100增加到300
     max_energy_kwh_year: float = 150_000  # 从50k增加到150k

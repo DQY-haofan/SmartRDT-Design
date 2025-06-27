@@ -845,6 +845,7 @@ class Visualizer:
             ax.text(0.5, 0.5, '无数据', ha='center', va='center', fontsize=12)
             ax.axis('off')
 
+
     def _plot_cost_breakdown(self, df: pd.DataFrame, ax):
         """绘制成本分解图"""
         if len(df) > 0:
@@ -867,7 +868,7 @@ class Visualizer:
             
             ax.set_xticks(range(len(cost_by_sensor)))
             ax.set_xticklabels(cost_by_sensor.index, rotation=45, ha='right')
-            ax.set_ylabel('平均年度成本 (k$)')
+            ax.set_ylabel('Average Annual Cost (k$)')  # 改为英文
             ax.grid(True, axis='y', alpha=0.3)
             
             # 添加数值标签
@@ -875,7 +876,7 @@ class Visualizer:
                 ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 5,
                     f'${value/1000:.0f}k', ha='center', va='bottom', fontsize=8)
         else:
-            ax.text(0.5, 0.5, '无数据', ha='center', va='center', fontsize=12)
+            ax.text(0.5, 0.5, 'No Data Available', ha='center', va='center', fontsize=12)  # 改为英文
             ax.axis('off')
 
     def _plot_carbon_analysis(self, df: pd.DataFrame, ax):
@@ -895,8 +896,8 @@ class Visualizer:
                 ax.scatter(x[mask], y[mask], c=[colors[i]], label=sensor_type, 
                         alpha=0.6, s=50, edgecolors='black', linewidth=0.5)
             
-            ax.set_xlabel('总成本 (k$)')
-            ax.set_ylabel('年碳排放 (吨CO₂)')
+            ax.set_xlabel('Total Cost (k$)')  # 改为英文
+            ax.set_ylabel('Annual Carbon Emissions (tons CO2)')  # 改为英文
             ax.legend(loc='best', fontsize=8)
             ax.grid(True, alpha=0.3)
             
@@ -905,14 +906,14 @@ class Visualizer:
             p = np.poly1d(z)
             ax.plot(sorted(x), p(sorted(x)), "r--", alpha=0.8, linewidth=2)
         else:
-            ax.text(0.5, 0.5, '无碳排放数据', ha='center', va='center', fontsize=12)
+            ax.text(0.5, 0.5, 'No Carbon Emission Data', ha='center', va='center', fontsize=12)  # 改为英文
             ax.axis('off')
 
     def _plot_scenario_impact(self, ax):
         """绘制场景影响分析"""
         # 模拟不同场景下的性能数据
-        scenarios = ['城市', '农村', '混合']
-        metrics = ['覆盖效率', '检测精度', '成本效益', '可靠性']
+        scenarios = ['Urban', 'Rural', 'Mixed']  # 改为英文
+        metrics = ['Coverage Efficiency', 'Detection Accuracy', 'Cost Efficiency', 'Reliability']  # 改为英文
         
         # 模拟数据
         data = np.array([
@@ -929,8 +930,8 @@ class Visualizer:
         for i, (scenario, values) in enumerate(zip(scenarios, data)):
             ax.bar(x + i*width, values, width, label=scenario, alpha=0.8)
         
-        ax.set_xlabel('性能指标')
-        ax.set_ylabel('归一化得分')
+        ax.set_xlabel('Performance Metrics')  # 改为英文
+        ax.set_ylabel('Normalized Score')  # 改为英文
         ax.set_xticks(x + width)
         ax.set_xticklabels(metrics, rotation=15, ha='right')
         ax.legend()
@@ -940,14 +941,14 @@ class Visualizer:
     def _plot_class_imbalance_impact(self, ax):
         """绘制类别不平衡影响"""
         # 算法类型和对应的性能下降
-        algorithms = ['传统方法', '机器学习', '深度学习', '点云处理']
+        algorithms = ['Traditional', 'Machine Learning', 'Deep Learning', 'Point Cloud']  # 改为英文
         recall_drop = [0.05, 0.02, 0.01, 0.03]
         
         # 绘制条形图
         bars = ax.bar(algorithms, recall_drop, color=['#ff9999', '#66b3ff', '#99ff99', '#ffcc99'])
         
-        ax.set_ylabel('召回率下降')
-        ax.set_title('类别不平衡对不同算法的影响', fontsize=10, pad=10)
+        ax.set_ylabel('Recall Drop')  # 改为英文
+        ax.set_title('Class Imbalance Impact on Different Algorithms', fontsize=10, pad=10)  # 已经是英文
         ax.grid(True, axis='y', alpha=0.3)
         
         # 添加数值标签
@@ -957,15 +958,15 @@ class Visualizer:
 
     def _plot_redundancy_impact(self, ax):
         """绘制冗余对可靠性的影响"""
-        deployment_types = ['单机', 'Edge', 'OnPremise', 'Hybrid', 'Cloud']
+        deployment_types = ['Single', 'Edge', 'OnPremise', 'Hybrid', 'Cloud']  # 改为英文
         mtbf_multipliers = [1.0, 2.0, 1.5, 5.0, 10.0]
         
         # 绘制条形图
         bars = ax.bar(deployment_types, mtbf_multipliers, 
                     color=plt.cm.Greens(np.linspace(0.3, 0.9, len(deployment_types))))
         
-        ax.set_ylabel('MTBF 倍增因子')
-        ax.set_title('部署冗余对系统可靠性的影响', fontsize=10, pad=10)
+        ax.set_ylabel('MTBF Multiplier')  # 改为英文
+        ax.set_title('Deployment Redundancy Impact on System Reliability', fontsize=10, pad=10)  # 已经是英文
         ax.grid(True, axis='y', alpha=0.3)
         
         # 添加数值标签
@@ -976,7 +977,7 @@ class Visualizer:
     def _plot_performance_radar(self, df: pd.DataFrame, ax):
         """绘制综合性能雷达图"""
         if len(df) == 0:
-            ax.text(0, 0, '无数据', ha='center', va='center', fontsize=12)
+            ax.text(0, 0, 'No Data', ha='center', va='center', fontsize=12)  # 改为英文
             return
         
         # 选择代表性解决方案
@@ -988,22 +989,23 @@ class Visualizer:
             # 成本优先
             idx = df['f1_total_cost_USD'].argmin()
             solutions.append(df.iloc[idx])
-            labels.append('成本优先')
+            labels.append('Cost Priority')  # 改为英文
         
         if len(df) > 1:
             # 性能优先
             idx = df['detection_recall'].argmax()
             solutions.append(df.iloc[idx])
-            labels.append('性能优先')
+            labels.append('Performance Priority')  # 改为英文
         
         if len(df) > 2 and 'f5_carbon_emissions_kgCO2e_year' in df.columns:
             # 环保优先
             idx = df['f5_carbon_emissions_kgCO2e_year'].argmin()
             solutions.append(df.iloc[idx])
-            labels.append('环保优先')
+            labels.append('Environmental Priority')  # 改为英文
         
-        # 设置雷达图参数
-        categories = ['成本效益', '检测性能', '实时性', '低干扰', '环保', '可靠性']
+        # 设置雷达图参数 - 改为英文
+        categories = ['Cost Efficiency', 'Detection Performance', 'Real-time', 
+                      'Low Disruption', 'Environmental', 'Reliability']
         num_vars = len(categories)
         
         # 计算角度
@@ -1067,6 +1069,7 @@ class Visualizer:
         ax.set_yticklabels(['0.2', '0.4', '0.6', '0.8'], fontsize=8)
         ax.legend(loc='upper left', bbox_to_anchor=(0.9, 1.1), fontsize=9)
         ax.grid(True, alpha=0.3)
+
 
     def _plot_feasibility_comparison(self, pareto_df: pd.DataFrame, 
                                baseline_results: Dict[str, pd.DataFrame], ax):

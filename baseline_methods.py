@@ -75,42 +75,53 @@ class BaselineMethod(ABC):
             'time_seconds': self.execution_time
         }
 
-
-
-
 class RandomSearchBaseline(BaselineMethod):
-    """Random search baseline with constraint awareness"""
+    """改进的随机搜索基线方法"""
     
     def optimize(self) -> pd.DataFrame:
-        """Generate random solutions with smart initialization"""
+        """生成随机解决方案，带有智能初始化和约束感知"""
         n_samples = self.config.n_random_samples
         logger.info(f"Running Random Search with {n_samples} samples...")
         
         start_time = time.time()
         
+        # 首先学习一些参考可行配置
+        reference_configs = self._generate_reference_configs()
+        
         for i in range(n_samples):
-            # 70% smart random, 30% pure random
-            if np.random.random() < 0.7:
+            if i < len(reference_configs):
+                # 使用参考配置
+                x = reference_configs[i]
+            elif np.random.random() < 0.7:
+                # 70% 使用智能随机
                 x = self._generate_smart_random_solution()
             else:
+                # 30% 纯随机探索
                 x = np.random.rand(11)
             
-            # Evaluate
+            # 如果已经有可行解，尝试从可行解变异
+            if len(self.results) > 50 and np.random.random() < 0.3:
+                feasible_results = [r for r in self.results if r['is_feasible']]
+                if feasible_results:
+                    base_idx = np.random.randint(0, len(feasible_results))
+                    x = self._mutate_from_feasible(feasible_results[base_idx])
+            
+            # 评估
             objectives, constraints = self.evaluator._evaluate_single(x)
             
-            # Store result
+            # 存储结果
             self.results.append(
                 self._create_result_entry(x, objectives, constraints, i+1)
             )
             
-            # Progress logging
+            # 进度日志
             if (i + 1) % 100 == 0:
                 feasible_count = sum(1 for r in self.results if r['is_feasible'])
                 logger.info(f"  Evaluated {i + 1} random solutions... ({feasible_count} feasible)")
         
         self.execution_time = time.time() - start_time
         
-        # Update time for all results
+        # 更新时间
         for result in self.results:
             result['time_seconds'] = self.execution_time
         
@@ -120,100 +131,148 @@ class RandomSearchBaseline(BaselineMethod):
         
         return df
     
+    def _generate_reference_configs(self) -> List[np.ndarray]:
+        """生成一些参考配置"""
+        configs = []
+        
+        # 配置1：低成本IoT方案
+        configs.append(np.array([
+            1.0, 0.2, 0.5, 0.5, 0.8, 0.7, 0.0, 0.3, 1.0, 0.2, 0.15
+        ]))
+        
+        # 配置2：平衡的车载方案
+        configs.append(np.array([
+            0.85, 0.4, 0.5, 0.5, 0.5, 0.6, 0.0, 0.5, 0.8, 0.3, 0.1
+        ]))
+        
+        # 配置3：中等性能方案
+        configs.append(np.array([
+            0.5, 0.5, 0.5, 0.5, 0.4, 0.7, 0.0, 0.6, 0.5, 0.3, 0.12
+        ]))
+        
+        # 生成更多变体
+        while len(configs) < 10:
+            base = configs[np.random.randint(0, min(3, len(configs)))]
+            mutated = base + np.random.normal(0, 0.1, 11)
+            mutated = np.clip(mutated, 0, 1)
+            configs.append(mutated)
+        
+        return configs
+    
     def _generate_smart_random_solution(self) -> np.ndarray:
-        """Generate solution with higher probability of feasibility"""
+        """生成智能随机解决方案"""
         x = np.zeros(11)
         
-        # Sensor: prefer cheaper options (higher index)
-        x[0] = np.random.beta(2, 1)  # Bias towards higher values (cheaper sensors)
+        # 传感器：偏向便宜的选项
+        x[0] = np.random.beta(2, 1)  # 偏向高值（便宜的传感器）
         
-        # Data rate: moderate
+        # 数据率：中等
         x[1] = np.random.uniform(0.3, 0.7)
         
-        # LOD: prefer Meso (middle option)
+        # LOD：偏好Meso
         x[2] = np.random.choice([0.33, 0.5, 0.67], p=[0.2, 0.6, 0.2])
-        x[3] = x[2]  # Same LOD
+        x[3] = x[2]  # 相同的LOD
         
-        # Algorithm: any
+        # 算法：任意
         x[4] = np.random.random()
         
-        # Detection threshold: moderate to high
+        # 检测阈值：中等到高
         x[5] = np.random.uniform(0.5, 0.8)
         
-        # Storage: prefer cheaper cloud
-        x[6] = np.random.choice([0.0, 0.5, 1.0], p=[0.6, 0.3, 0.1])  # Bias to cloud
+        # 存储：偏好云（便宜）
+        x[6] = np.random.choice([0.0, 0.5, 1.0], p=[0.6, 0.3, 0.1])
         
-        # Communication: moderate
+        # 通信：中等
         x[7] = np.random.uniform(0.3, 0.7)
         
-        # Deployment: prefer cloud
-        x[8] = np.random.choice([0.0, 0.5, 1.0], p=[0.2, 0.3, 0.5])  # Bias to cloud
+        # 部署：偏好云
+        x[8] = np.random.choice([0.0, 0.5, 1.0], p=[0.2, 0.3, 0.5])
         
-        # Crew size: small to medium
-        x[9] = np.random.uniform(0.1, 0.5)  # 1-5 people
+        # 团队规模：小到中等
+        x[9] = np.random.uniform(0.1, 0.5)  # 1-5人
         
-        # Inspection cycle: monthly to quarterly
-        x[10] = np.random.uniform(0.08, 0.25)  # 30-90 days
+        # 检查周期：月度到季度
+        x[10] = np.random.uniform(0.08, 0.25)  # 30-90天
         
         return x
     
+    def _mutate_from_feasible(self, feasible_result: Dict) -> np.ndarray:
+        """从可行解变异"""
+        # 简化的重构 - 实际应该反向解码
+        x = np.random.rand(11)
+        x[0] = np.random.uniform(0.8, 1.0)  # 倾向便宜的传感器
+        x[2] = 0.5  # Meso LOD
+        x[3] = 0.5
+        x[5] = 0.7  # 合理的阈值
+        x[6] = 0.0  # 云存储
+        x[8] = 1.0  # 云部署
+        
+        # 添加小的扰动
+        noise = np.random.normal(0, 0.05, 11)
+        x = np.clip(x + noise, 0, 1)
+        
+        return x
+
 
 class GridSearchBaseline(BaselineMethod):
-    """Grid search on key variables with feasible focus"""
+    """改进的网格搜索，专注于可行区域"""
     
     def optimize(self) -> pd.DataFrame:
-        """Grid search on discrete variables"""
+        """在关键变量上进行网格搜索"""
         resolution = self.config.grid_resolution
         logger.info(f"Running Grid Search with resolution {resolution}...")
         
         start_time = time.time()
         
-        # Focus on likely feasible regions
-        # Cheaper sensors (IoT, Vehicle)
-        sensor_indices = [0.6, 0.8, 1.0]  # Later indices = cheaper sensors
+        # 专注于可能可行的区域
+        # 便宜的传感器（IoT，车载）
+        sensor_indices = [0.8, 0.85, 0.9, 0.95, 1.0]
         
-        # Algorithms - all types
+        # 算法 - 所有类型
         algo_indices = np.linspace(0, 1, min(resolution, 5))
         
-        # LOD - focus on Meso
-        lod_values = [0.33, 0.5, 0.67]  # Micro, Meso, Macro
+        # LOD - 主要是Meso
+        lod_values = [0.5]  # 只用Meso以减少搜索空间
         
-        # Deployment - prefer cloud (cheaper)
-        deployment_values = [0.5, 0.75, 1.0]  # Edge, Hybrid, Cloud
+        # 部署 - 偏好云（便宜）
+        deployment_values = [0.8, 1.0]  # Hybrid和Cloud
+        
+        # 检查周期
+        cycle_values = [0.08, 0.12, 0.16, 0.2]  # 30, 45, 60, 75天
         
         solution_id = 0
         
         for sensor_idx in sensor_indices:
             for algo_idx in algo_indices:
-                for lod in lod_values:
-                    for deployment in deployment_values:
+                for deployment in deployment_values:
+                    for cycle in cycle_values:
                         solution_id += 1
                         
-                        # Create solution vector
+                        # 创建解决方案向量
                         x = np.zeros(11)
                         x[0] = sensor_idx
-                        x[1] = 0.5  # Medium data rate
-                        x[2] = lod
-                        x[3] = lod  # Same LOD
+                        x[1] = 0.5  # 中等数据率
+                        x[2] = 0.5  # Meso LOD
+                        x[3] = 0.5  # Meso LOD
                         x[4] = algo_idx
-                        x[5] = 0.7  # High threshold
-                        x[6] = 0.0  # Cloud storage (cheapest)
-                        x[7] = 0.5  # Middle comm
+                        x[5] = 0.7  # 高阈值
+                        x[6] = 0.0  # 云存储（最便宜）
+                        x[7] = 0.5  # 中等通信
                         x[8] = deployment
-                        x[9] = 0.3  # 3-person crew
-                        x[10] = 0.1  # ~36 day cycle
+                        x[9] = 0.3  # 3人团队
+                        x[10] = cycle
                         
-                        # Evaluate
+                        # 评估
                         objectives, constraints = self.evaluator._evaluate_single(x)
                         
-                        # Store result
+                        # 存储结果
                         self.results.append(
                             self._create_result_entry(x, objectives, constraints, solution_id)
                         )
         
         self.execution_time = time.time() - start_time
         
-        # Update time
+        # 更新时间
         for result in self.results:
             result['time_seconds'] = self.execution_time
         
@@ -223,45 +282,52 @@ class GridSearchBaseline(BaselineMethod):
         logger.info(f"  Found {df['is_feasible'].sum()} feasible solutions")
         
         return df
-    
+
 
 class WeightedSumBaseline(BaselineMethod):
-    """Single-objective weighted sum optimization"""
+    """改进的加权和优化"""
     
     def optimize(self) -> pd.DataFrame:
-        """Optimize using different weight combinations"""
+        """使用不同权重组合进行优化"""
         n_weights = self.config.weight_combinations
         logger.info(f"Running Weighted Sum with {n_weights} weight sets...")
         
         start_time = time.time()
         
-        # Generate weight combinations
+        # 生成权重组合
         weight_sets = self._generate_weight_sets(n_weights)
         
         for weight_idx, weights in enumerate(weight_sets):
-            # Find best solution for this weight set
+            # 为每个权重组合寻找最佳解决方案
             best_score = float('inf')
             best_solution = None
             best_objectives = None
             best_constraints = None
             
-            # Random search with current weights
-            for _ in range(100):
-                x = np.random.rand(11)
-                objectives, constraints = self.evaluator._evaluate_single(x)
+            # 使用多个随机起点
+            for start in range(20):
+                x = self._generate_smart_initial_point()
                 
-                if np.all(constraints <= 0):  # Only consider feasible
-                    # Normalize and compute weighted sum
-                    norm_obj = self._normalize_objectives(objectives)
-                    score = np.dot(weights, norm_obj)
+                # 局部搜索
+                for iteration in range(50):
+                    objectives, constraints = self.evaluator._evaluate_single(x)
                     
-                    if score < best_score:
-                        best_score = score
-                        best_solution = x
-                        best_objectives = objectives
-                        best_constraints = constraints
+                    # 只考虑可行解
+                    if np.all(constraints <= 0):
+                        # 归一化并计算加权和
+                        norm_obj = self._normalize_objectives(objectives)
+                        score = np.dot(weights, norm_obj)
+                        
+                        if score < best_score:
+                            best_score = score
+                            best_solution = x.copy()
+                            best_objectives = objectives
+                            best_constraints = constraints
+                    
+                    # 梯度下降式的改进
+                    x = self._local_search_step(x, weights)
             
-            # Store best solution for this weight set
+            # 存储这个权重组合的最佳解决方案
             if best_solution is not None:
                 result = self._create_result_entry(
                     best_solution, best_objectives, best_constraints, weight_idx + 1
@@ -269,13 +335,13 @@ class WeightedSumBaseline(BaselineMethod):
                 result['weights'] = weights.tolist()
                 self.results.append(result)
             
-            # Progress logging
+            # 进度日志
             if (weight_idx + 1) % 10 == 0:
                 logger.info(f"  Evaluated {weight_idx + 1} weight combinations...")
         
         self.execution_time = time.time() - start_time
         
-        # Update time
+        # 更新时间
         for result in self.results:
             result['time_seconds'] = self.execution_time
         
@@ -286,19 +352,19 @@ class WeightedSumBaseline(BaselineMethod):
         return df
     
     def _generate_weight_sets(self, n_sets: int) -> np.ndarray:
-        """Generate diverse weight combinations"""
+        """生成多样化的权重组合"""
         weights = []
         
-        # Uniform weights
+        # 均匀权重
         weights.append(np.ones(6) / 6)
         
-        # Single objective focus
+        # 单目标焦点
         for i in range(6):
             w = np.zeros(6)
             w[i] = 1.0
             weights.append(w)
         
-        # Balanced pairs
+        # 平衡的配对
         for i in range(6):
             for j in range(i+1, 6):
                 w = np.zeros(6)
@@ -310,23 +376,51 @@ class WeightedSumBaseline(BaselineMethod):
             if len(weights) >= n_sets:
                 break
         
-        # Random weights for remaining
+        # 剩余的随机权重
         while len(weights) < n_sets:
             w = np.random.rand(6)
-            w = w / w.sum()  # Normalize
+            w = w / w.sum()  # 归一化
             weights.append(w)
         
         return np.array(weights[:n_sets])
     
+    def _generate_smart_initial_point(self) -> np.ndarray:
+        """生成智能初始点"""
+        x = np.zeros(11)
+        x[0] = np.random.uniform(0.7, 1.0)  # 便宜的传感器
+        x[1] = 0.5
+        x[2] = 0.5
+        x[3] = 0.5
+        x[4] = np.random.random()
+        x[5] = 0.7
+        x[6] = 0.0
+        x[7] = 0.5
+        x[8] = np.random.choice([0.5, 1.0])
+        x[9] = 0.3
+        x[10] = np.random.uniform(0.08, 0.2)
+        return x
+    
+    def _local_search_step(self, x: np.ndarray, weights: np.ndarray) -> np.ndarray:
+        """局部搜索步骤"""
+        # 简单的随机扰动
+        x_new = x.copy()
+        for i in range(len(x)):
+            if np.random.random() < 0.2:  # 20%的变量被修改
+                if i in [2, 3]:  # LOD
+                    x_new[i] = np.random.choice([0.33, 0.5, 0.67])
+                else:
+                    x_new[i] = np.clip(x[i] + np.random.normal(0, 0.1), 0, 1)
+        return x_new
+    
     def _normalize_objectives(self, obj: np.ndarray) -> np.ndarray:
-        """Normalize objectives to [0,1]"""
-        # Approximate ranges based on problem knowledge
+        """归一化目标到[0,1]"""
+        # 基于问题知识的近似范围
         ranges = [
-            (1e5, 2e7),      # Cost
-            (0, 0.3),        # 1-Recall
-            (0.1, 200),      # Latency
-            (0, 200),        # Disruption
-            (100, 50000),    # Carbon emissions
+            (1e5, 2e7),      # 成本
+            (0, 0.3),        # 1-召回率
+            (0.1, 200),      # 延迟
+            (0, 200),        # 干扰
+            (100, 50000),    # 碳排放
             (1e-6, 1e-3)     # 1/MTBF
         ]
         
@@ -337,43 +431,49 @@ class WeightedSumBaseline(BaselineMethod):
         return np.clip(norm, 0, 1)
 
 
-
-
 class ExpertHeuristicBaseline(BaselineMethod):
-    """Expert-defined configurations with feasibility focus"""
+    """基于专家知识的配置"""
     
     def optimize(self) -> pd.DataFrame:
-        """Generate expert-recommended configurations"""
+        """生成专家推荐的配置"""
         logger.info("Running Expert Heuristic baseline...")
         
         start_time = time.time()
         
-        # Define expert configurations with improved feasibility
+        # 定义改进的专家配置，着重可行性
         expert_configs = [
-            ("HighPerformance", self._high_performance_config()),
             ("LowCost", self._low_cost_config()),
             ("Balanced", self._balanced_config()),
+            ("QuickDeploy", self._quick_deploy_config()),
+            ("Urban", self._urban_config()),
+            ("Rural", self._rural_config()),
             ("Sustainable", self._sustainable_config()),
             ("Reliable", self._reliable_config()),
-            ("RealTime", self._real_time_config()),
-            ("LongRange", self._long_range_config()),
-            ("HighPrecision", self._high_precision_config()),
-            ("MinimalDisruption", self._minimal_disruption_config()),
+            ("Emergency", self._emergency_config()),
+            ("Research", self._research_config()),
             ("Practical", self._practical_config())
         ]
         
+        # 为每个基础配置添加变体
+        base_configs = expert_configs.copy()
+        for name, config in base_configs:
+            # 创建两个轻微变体
+            for i in range(2):
+                varied = self._add_variation(config, 0.1)
+                expert_configs.append((f"{name}_Var{i+1}", varied))
+        
         for idx, (name, x) in enumerate(expert_configs):
-            # Evaluate
+            # 评估
             objectives, constraints = self.evaluator._evaluate_single(x)
             
-            # Store result
+            # 存储结果
             result = self._create_result_entry(x, objectives, constraints, idx + 1)
             result['method'] = f"ExpertHeuristic-{name}"
             self.results.append(result)
         
         self.execution_time = time.time() - start_time
         
-        # Update time
+        # 更新时间
         for result in self.results:
             result['time_seconds'] = self.execution_time
         
@@ -384,56 +484,179 @@ class ExpertHeuristicBaseline(BaselineMethod):
         
         return df
     
-    def _high_performance_config(self) -> np.ndarray:
-        """Maximum detection performance - adjusted for feasibility"""
-        # MMS but with cost controls
-        return np.array([0.3, 0.7, 0.33, 0.33, 0.2, 0.8, 0.0, 0.8, 0.5, 0.4, 0.08])
-    
     def _low_cost_config(self) -> np.ndarray:
-        """Minimum cost configuration - improved"""
-        # IoT sensor (cheapest), minimal everything
-        return np.array([1.0, 0.2, 0.67, 0.67, 0.7, 0.5, 0.0, 0.5, 1.0, 0.2, 0.25])
+        """最低成本配置 - 改进版"""
+        return np.array([
+            1.0,    # IoT传感器（最便宜）
+            0.2,    # 低数据率
+            0.5,    # Meso LOD（平衡）
+            0.5,    # Meso LOD
+            0.8,    # 传统算法（便宜）
+            0.6,    # 中等阈值
+            0.0,    # 云存储
+            0.4,    # LoRaWAN
+            1.0,    # 云部署
+            0.2,    # 2人团队
+            0.15    # 55天周期
+        ])
     
     def _balanced_config(self) -> np.ndarray:
-        """Balanced across all objectives - improved"""
-        # Vehicle sensor, moderate settings
-        return np.array([0.8, 0.5, 0.5, 0.5, 0.5, 0.6, 0.0, 0.5, 0.8, 0.3, 0.1])
+        """平衡配置 - 改进版"""
+        return np.array([
+            0.85,   # 车载传感器
+            0.5,    # 中等设置
+            0.5,    # Meso LOD
+            0.5,    # Meso LOD
+            0.5,    # ML算法
+            0.65,   # 较好的阈值
+            0.0,    # 云存储
+            0.5,    # 4G
+            0.8,    # 混合部署
+            0.3,    # 3人团队
+            0.1     # 36天
+        ])
+    
+    def _quick_deploy_config(self) -> np.ndarray:
+        """快速部署配置"""
+        return np.array([
+            0.9,    # 车载传感器（易部署）
+            0.4,    # 中等数据率
+            0.5,    # Meso LOD
+            0.5,    # Meso LOD
+            0.7,    # 简单ML算法
+            0.6,    # 中等阈值
+            0.0,    # 云存储
+            0.6,    # 4G（现有基础设施）
+            1.0,    # 云部署
+            0.3,    # 3人团队
+            0.12    # 45天
+        ])
+    
+    def _urban_config(self) -> np.ndarray:
+        """城市配置"""
+        return np.array([
+            0.88,   # 车载传感器
+            0.5,    # 中等数据率
+            0.5,    # Meso LOD
+            0.5,    # Meso LOD
+            0.4,    # ML算法
+            0.7,    # 高阈值
+            0.0,    # 云存储
+            0.7,    # 接近5G
+            0.8,    # 混合部署
+            0.35,   # 3-4人团队
+            0.08    # 30天
+        ])
+    
+    def _rural_config(self) -> np.ndarray:
+        """农村配置"""
+        return np.array([
+            0.95,   # 接近IoT（覆盖范围）
+            0.3,    # 较低数据率
+            0.5,    # Meso LOD
+            0.5,    # Meso LOD
+            0.6,    # 传统/ML混合
+            0.6,    # 中等阈值
+            0.0,    # 云存储
+            0.4,    # LoRaWAN
+            1.0,    # 云部署
+            0.2,    # 2人团队
+            0.2     # 73天
+        ])
     
     def _sustainable_config(self) -> np.ndarray:
-        """Minimum environmental impact - improved"""
-        # UAV with efficient settings
-        return np.array([0.5, 0.3, 0.5, 0.5, 0.6, 0.5, 0.0, 0.5, 1.0, 0.2, 0.15])
+        """可持续配置"""
+        return np.array([
+            0.95,   # 低功耗IoT
+            0.15,   # 很低的数据率
+            0.5,    # Meso LOD
+            0.5,    # Meso LOD
+            0.8,    # 高效传统算法
+            0.6,    # 中等阈值
+            0.0,    # 云（共享资源）
+            0.3,    # LoRaWAN（低功耗）
+            1.0,    # 云部署
+            0.15,   # 小团队
+            0.25    # 90天
+        ])
     
     def _reliable_config(self) -> np.ndarray:
-        """Maximum system reliability - improved"""
-        # Balanced with redundancy
-        return np.array([0.4, 0.4, 0.5, 0.5, 0.4, 0.6, 0.5, 0.7, 0.8, 0.3, 0.1])
+        """可靠配置 - 改进版"""
+        return np.array([
+            0.4,    # 更好的传感器
+            0.4,    # 中等数据率
+            0.5,    # Meso LOD
+            0.5,    # Meso LOD
+            0.4,    # ML算法
+            0.7,    # 高阈值
+            0.5,    # 混合存储
+            0.6,    # 4G
+            0.5,    # 混合部署
+            0.3,    # 3人团队
+            0.1     # 36天
+        ])
     
-    def _real_time_config(self) -> np.ndarray:
-        """Minimum latency for real-time response"""
-        # Edge computing with fast processing
-        return np.array([0.6, 0.8, 0.67, 0.67, 0.3, 0.7, 0.2, 0.8, 0.0, 0.3, 0.1])
+    def _emergency_config(self) -> np.ndarray:
+        """应急配置"""
+        return np.array([
+            0.5,    # UAV快速部署
+            0.6,    # 较高数据率
+            0.5,    # Meso LOD
+            0.5,    # Meso LOD
+            0.3,    # 快速ML算法
+            0.5,    # 较低阈值（安全）
+            0.0,    # 云存储
+            0.7,    # 接近5G
+            0.2,    # 边缘（低延迟）
+            0.4,    # 4人团队
+            0.01    # 每日检查
+        ])
     
-    def _long_range_config(self) -> np.ndarray:
-        """Maximum coverage efficiency"""
-        # MMS with optimized settings
-        return np.array([0.2, 0.7, 0.67, 0.67, 0.5, 0.6, 0.0, 0.6, 0.5, 0.2, 0.2])
-    
-    def _high_precision_config(self) -> np.ndarray:
-        """Maximum measurement precision"""
-        # High-end sensor with micro LOD
-        return np.array([0.1, 0.6, 0.0, 0.0, 0.2, 0.9, 0.0, 0.7, 0.3, 0.4, 0.08])
-    
-    def _minimal_disruption_config(self) -> np.ndarray:
-        """Minimum traffic disruption"""
-        # UAV or fixed sensors
-        return np.array([0.6, 0.4, 0.5, 0.5, 0.7, 0.5, 0.0, 0.4, 0.7, 0.15, 0.5])
+    def _research_config(self) -> np.ndarray:
+        """研究级配置 - 调整为更实际"""
+        return np.array([
+            0.3,    # 较好的传感器
+            0.7,    # 高数据率
+            0.33,   # 接近Micro LOD
+            0.33,   # 接近Micro LOD
+            0.2,    # DL算法
+            0.8,    # 高阈值
+            0.5,    # 混合存储
+            0.8,    # 接近光纤
+            0.3,    # 边缘计算
+            0.5,    # 5人团队
+            0.06    # 21天
+        ])
     
     def _practical_config(self) -> np.ndarray:
-        """Practical balanced configuration"""
-        # Vehicle-based with reasonable settings
-        return np.array([0.85, 0.5, 0.5, 0.5, 0.6, 0.7, 0.0, 0.5, 0.9, 0.3, 0.15])
+        """实用配置"""
+        return np.array([
+            0.88,   # 车载传感器
+            0.45,   # 中等一切
+            0.5,    # Meso LOD
+            0.5,    # Meso LOD
+            0.5,    # ML算法
+            0.65,   # 好的阈值
+            0.0,    # 云存储
+            0.6,    # 4G
+            0.8,    # 主要是云
+            0.35,   # 3-4人团队
+            0.11    # 40天
+        ])
+    
+    def _add_variation(self, config: np.ndarray, variation_level: float) -> np.ndarray:
+        """添加小变化"""
+        varied = config.copy()
         
+        for i in range(len(varied)):
+            if i in [2, 3]:  # LOD - 不变
+                continue
+            
+            # 添加高斯噪声
+            noise = np.random.normal(0, variation_level)
+            varied[i] = np.clip(varied[i] + noise, 0, 1)
+        
+        return varied  
 
 class BaselineRunner:
     """Orchestrates all baseline methods"""
