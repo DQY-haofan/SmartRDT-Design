@@ -29,7 +29,7 @@ class SolutionMapper:
         self._decode_cache = {}
         
     def _cache_components(self):
-        """缓存所有可用组件 - 改进的查询方法"""
+        """缓存所有可用组件 - 修复版本"""
         self.sensors = []
         self.algorithms = []
         self.storage_systems = []
@@ -38,47 +38,55 @@ class SolutionMapper:
         
         logger.info("缓存本体组件...")
         
-        # 查询所有传感器实例 - 改进的查询
+        # 获取所有实例并按类型分类
         for s, p, o in self.g:
-            subject_str = str(s)
-            
-            # 检查是否是实例（以http://example.org/rmtwin#开头）
-            if subject_str.startswith('http://example.org/rmtwin#'):
-                # 获取该实例的所有类型
-                types = list(self.g.objects(s, RDF.type))
+            if p == RDF.type and str(s).startswith('http://example.org/rmtwin#'):
+                subject_str = str(s)
+                type_str = str(o)
                 
-                for t in types:
-                    type_str = str(t)
-                    
-                    # 传感器
-                    if 'Sensor' in type_str or 'sensor' in type_str:
-                        if subject_str not in self.sensors:
-                            self.sensors.append(subject_str)
-                    
-                    # 算法
-                    elif 'Algorithm' in type_str or 'algorithm' in type_str:
-                        if subject_str not in self.algorithms:
-                            self.algorithms.append(subject_str)
-                    
-                    # 存储系统
-                    elif 'Storage' in type_str:
-                        if subject_str not in self.storage_systems:
-                            self.storage_systems.append(subject_str)
-                    
-                    # 通信系统
-                    elif 'Communication' in type_str:
-                        if subject_str not in self.comm_systems:
-                            self.comm_systems.append(subject_str)
-                    
-                    # 部署
-                    elif 'Deployment' in type_str or 'Compute' in type_str:
-                        if subject_str not in self.deployments:
-                            self.deployments.append(subject_str)
+                # 传感器 - 扩展检测逻辑
+                if any(sensor_type in type_str for sensor_type in [
+                    'MMS_LiDAR_System', 'MMS_Camera_System', 
+                    'UAV_LiDAR_System', 'UAV_Camera_System',
+                    'TLS_System', 'Handheld_3D_Scanner',
+                    'FiberOptic_Sensor', 'Vehicle_LowCost_Sensor',
+                    'IoT_Network_System', 'Sensor', 'sensor'
+                ]):
+                    if subject_str not in self.sensors:
+                        self.sensors.append(subject_str)
+                        
+                # 算法
+                elif any(algo_type in type_str for algo_type in [
+                    'DeepLearningAlgorithm', 'MachineLearningAlgorithm',
+                    'TraditionalAlgorithm', 'PointCloudAlgorithm',
+                    'Algorithm', 'algorithm'
+                ]):
+                    if subject_str not in self.algorithms:
+                        self.algorithms.append(subject_str)
+                        
+                # 存储系统
+                elif 'Storage' in type_str:
+                    if subject_str not in self.storage_systems:
+                        self.storage_systems.append(subject_str)
+                        
+                # 通信系统
+                elif 'Communication' in type_str:
+                    if subject_str not in self.comm_systems:
+                        self.comm_systems.append(subject_str)
+                        
+                # 部署
+                elif any(deploy_type in type_str for deploy_type in [
+                    'Deployment', 'Compute', 'Edge', 'Cloud'
+                ]):
+                    if subject_str not in self.deployments:
+                        self.deployments.append(subject_str)
         
-        # 确保至少有默认值
+        # 验证并设置默认值
         if not self.sensors:
+            logger.error("未找到传感器！使用默认值")
             self.sensors = ["http://example.org/rmtwin#MMS_LiDAR_Riegl_VUX1HA"]
         if not self.algorithms:
+            logger.error("未找到算法！使用默认值")
             self.algorithms = ["http://example.org/rmtwin#DL_YOLOv5s_Enhanced"]
         if not self.storage_systems:
             self.storage_systems = ["http://example.org/rmtwin#Storage_Cloud_AWS_S3"]
@@ -88,8 +96,12 @@ class SolutionMapper:
             self.deployments = ["http://example.org/rmtwin#Deployment_Cloud_Computing"]
         
         logger.info(f"缓存的组件: {len(self.sensors)} 传感器, "
-                   f"{len(self.algorithms)} 算法, {len(self.storage_systems)} 存储, "
-                   f"{len(self.comm_systems)} 通信, {len(self.deployments)} 部署")
+                f"{len(self.algorithms)} 算法, {len(self.storage_systems)} 存储, "
+                f"{len(self.comm_systems)} 通信, {len(self.deployments)} 部署")
+        
+        # 调试输出
+        if len(self.sensors) < 10:
+            logger.debug(f"传感器列表: {self.sensors}")
     
     def decode_solution(self, x: np.ndarray) -> Dict:
         """解码解决方案向量 - 修复缓存问题"""
