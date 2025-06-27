@@ -79,32 +79,32 @@ def save_results_summary(results: Dict, config) -> None:
     }
     
     # Process NSGA-II results if available
-    if 'nsga2' in results:
-        nsga2_df = results['nsga2']['dataframe']
-        if len(nsga2_df) > 0 and 'f1_total_cost_USD' in nsga2_df.columns:
-            summary['results']['nsga2'] = {
-                'total_solutions': len(nsga2_df),
-                'computation_time': results['nsga2'].get('time', 0),
+    if 'nsga3' in results:
+        nsga3_df = results['nsga3']['dataframe']
+        if len(nsga3_df) > 0 and 'f1_total_cost_USD' in nsga3_df.columns:
+            summary['results']['nsga3'] = {
+                'total_solutions': len(nsga3_df),
+                'computation_time': results['nsga3'].get('time', 0),
                 'objectives': {
                     'cost': {
-                        'min': float(nsga2_df['f1_total_cost_USD'].min()),
-                        'max': float(nsga2_df['f1_total_cost_USD'].max()),
-                        'mean': float(nsga2_df['f1_total_cost_USD'].mean())
+                        'min': float(nsga3_df['f1_total_cost_USD'].min()),
+                        'max': float(nsga3_df['f1_total_cost_USD'].max()),
+                        'mean': float(nsga3_df['f1_total_cost_USD'].mean())
                     },
                     'recall': {
-                        'min': float(nsga2_df['detection_recall'].min()),
-                        'max': float(nsga2_df['detection_recall'].max()),
-                        'mean': float(nsga2_df['detection_recall'].mean())
+                        'min': float(nsga3_df['detection_recall'].min()),
+                        'max': float(nsga3_df['detection_recall'].max()),
+                        'mean': float(nsga3_df['detection_recall'].mean())
                     }
                 }
             }
             
-            # Add carbon emissions if available
-            if 'f5_carbon_emissions_kgCO2e_year' in nsga2_df.columns:
-                summary['results']['nsga2']['objectives']['carbon'] = {
-                    'min': float(nsga2_df['f5_carbon_emissions_kgCO2e_year'].min()),
-                    'max': float(nsga2_df['f5_carbon_emissions_kgCO2e_year'].max()),
-                    'mean': float(nsga2_df['f5_carbon_emissions_kgCO2e_year'].mean())
+            # Add other objectives
+            if 'f5_carbon_emissions_kgCO2e_year' in nsga3_df.columns:
+                summary['results']['nsga3']['objectives']['carbon'] = {
+                    'min': float(nsga3_df['f5_carbon_emissions_kgCO2e_year'].min()),
+                    'max': float(nsga3_df['f5_carbon_emissions_kgCO2e_year'].max()),
+                    'mean': float(nsga3_df['f5_carbon_emissions_kgCO2e_year'].mean())
                 }
         else:
             summary['results']['nsga2'] = {
@@ -173,11 +173,10 @@ def generate_text_report(summary: Dict, config) -> str:
         report.append("-"*40)
         
         # NSGA-II results
-        if 'nsga2' in summary['results']:
-            nsga2 = summary['results']['nsga2']
-            report.append("NSGA-II Pareto Front:")
-            report.append(f"  Total Solutions: {nsga2.get('total_solutions', 0)}")
-            report.append(f"  Computation Time: {nsga2.get('computation_time', 0):.2f} seconds")
+        if 'nsga3' in summary['results']:
+            nsga3 = summary['results']['nsga3']
+            report.append("NSGA-III Pareto Front:")
+            report.append(f"  Total Solutions: {nsga3.get('total_solutions', 0)}")
             
             if 'objectives' in nsga2:
                 report.append("  Objective Ranges:")

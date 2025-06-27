@@ -575,39 +575,39 @@ class Visualizer:
             ax.axis('off')
 
     def _plot_representative_solutions(self, df: pd.DataFrame, ax):
-        """绘制代表性解决方案表格"""
-        # 选择代表性解决方案
+        """Plot representative solutions table - English version"""
+        # Select representative solutions
         representatives = []
         
-        # 最低成本
+        # Lowest cost
         if len(df) > 0:
             min_cost_idx = df['f1_total_cost_USD'].argmin()
-            representatives.append(('最低成本', df.iloc[min_cost_idx]))
+            representatives.append(('Lowest Cost', df.iloc[min_cost_idx]))
         
-        # 最高召回率
+        # Highest recall
         if len(df) > 0:
             max_recall_idx = df['detection_recall'].argmax()
-            representatives.append(('最高召回率', df.iloc[max_recall_idx]))
+            representatives.append(('Highest Recall', df.iloc[max_recall_idx]))
         
-        # 最低碳排放
+        # Lowest carbon
         if 'f5_carbon_emissions_kgCO2e_year' in df.columns and len(df) > 0:
             min_carbon_idx = df['f5_carbon_emissions_kgCO2e_year'].argmin()
-            representatives.append(('最低碳排放', df.iloc[min_carbon_idx]))
+            representatives.append(('Lowest Carbon', df.iloc[min_carbon_idx]))
         
-        # 平衡解决方案（所有目标的归一化和最小）
+        # Balanced solution
         if len(df) > 0:
             norm_df = df.copy()
             for col in ['f1_total_cost_USD', 'f3_latency_seconds', 'f4_traffic_disruption_hours', 
                         'f5_carbon_emissions_kgCO2e_year']:
                 if col in norm_df.columns:
                     norm_df[col] = (norm_df[col] - norm_df[col].min()) / (norm_df[col].max() - norm_df[col].min() + 1e-10)
-            norm_df['detection_recall'] = 1 - norm_df['detection_recall']  # 转换为最小化
+            norm_df['detection_recall'] = 1 - norm_df['detection_recall']
             
             norm_sum = norm_df[['f1_total_cost_USD', 'detection_recall', 'f3_latency_seconds']].sum(axis=1)
             balanced_idx = norm_sum.argmin()
-            representatives.append(('平衡方案', df.iloc[balanced_idx]))
+            representatives.append(('Balanced', df.iloc[balanced_idx]))
         
-        # 创建表格数据
+        # Create table data
         if representatives:
             table_data = []
             for name, sol in representatives:
@@ -622,9 +622,9 @@ class Visualizer:
                 ]
                 table_data.append(row)
             
-            columns = ['方案类型', '传感器', '算法', '成本', '召回率', '延迟', '碳排放']
+            columns = ['Solution Type', 'Sensor', 'Algorithm', 'Cost', 'Recall', 'Latency', 'Carbon']
             
-            # 绘制表格
+            # Draw table
             ax.axis('tight')
             ax.axis('off')
             table = ax.table(cellText=table_data, colLabels=columns,
@@ -634,7 +634,7 @@ class Visualizer:
             table.set_fontsize(9)
             table.scale(1, 1.5)
             
-            # 设置表格样式
+            # Set table style
             for i in range(len(columns)):
                 table[(0, i)].set_facecolor('#4CAF50')
                 table[(0, i)].set_text_props(weight='bold', color='white')
@@ -644,35 +644,35 @@ class Visualizer:
                     if i % 2 == 0:
                         table[(i, j)].set_facecolor('#f0f0f0')
         else:
-            ax.text(0.5, 0.5, '无可用数据', ha='center', va='center', fontsize=12)
+            ax.text(0.5, 0.5, 'No Data Available', ha='center', va='center', fontsize=12)
             ax.axis('off')
 
     def _plot_correlation_matrix(self, df: pd.DataFrame, ax):
-        """绘制目标相关性矩阵"""
-        # 选择目标列
+        """Plot objective correlation matrix - English version"""
+        # Select objective columns
         obj_cols = ['f1_total_cost_USD', 'detection_recall', 'f3_latency_seconds',
                     'f4_traffic_disruption_hours', 'f5_carbon_emissions_kgCO2e_year',
                     'system_MTBF_hours']
         
-        # 过滤存在的列
+        # Filter existing columns
         available_cols = [col for col in obj_cols if col in df.columns]
         
         if len(available_cols) > 1 and len(df) > 1:
-            # 计算相关性
+            # Calculate correlation
             corr_data = df[available_cols].corr()
             
-            # 绘制热力图
+            # Plot heatmap
             mask = np.triu(np.ones_like(corr_data), k=1)
             sns.heatmap(corr_data, mask=mask, annot=True, fmt='.2f',
                     cmap='coolwarm', center=0, square=True,
                     linewidths=1, cbar_kws={"shrink": .8}, ax=ax)
             
-            # 设置标签
-            labels = ['成本', '召回率', '延迟', '干扰', '碳排放', '可靠性'][:len(available_cols)]
+            # Set labels
+            labels = ['Cost', 'Recall', 'Latency', 'Disruption', 'Carbon', 'Reliability'][:len(available_cols)]
             ax.set_xticklabels(labels, rotation=45, ha='right')
             ax.set_yticklabels(labels, rotation=0)
         else:
-            ax.text(0.5, 0.5, '数据不足', ha='center', va='center', fontsize=12)
+            ax.text(0.5, 0.5, 'Insufficient Data', ha='center', va='center', fontsize=12)
             ax.axis('off')
 
     def _plot_technology_distribution(self, df: pd.DataFrame, ax):
@@ -785,43 +785,43 @@ class Visualizer:
             ax.axis('off')
 
     def _plot_summary_statistics(self, df: pd.DataFrame, ax):
-        """绘制汇总统计表"""
+        """Plot summary statistics table - English version"""
         if len(df) > 0:
-            # 计算统计数据
+            # Calculate statistics
             stats = []
             
-            # 成本统计
-            stats.append(['总成本', 
+            # Cost statistics
+            stats.append(['Total Cost', 
                         f"${df['f1_total_cost_USD'].min()/1e6:.1f}M - ${df['f1_total_cost_USD'].max()/1e6:.1f}M",
                         f"${df['f1_total_cost_USD'].mean()/1e6:.1f}M ± ${df['f1_total_cost_USD'].std()/1e6:.1f}M"])
             
-            # 召回率统计
-            stats.append(['检测召回率',
+            # Recall statistics
+            stats.append(['Detection Recall',
                         f"{df['detection_recall'].min():.3f} - {df['detection_recall'].max():.3f}",
                         f"{df['detection_recall'].mean():.3f} ± {df['detection_recall'].std():.3f}"])
             
-            # 延迟统计
-            stats.append(['延迟',
+            # Latency statistics
+            stats.append(['Latency',
                         f"{df['f3_latency_seconds'].min():.1f}s - {df['f3_latency_seconds'].max():.1f}s",
                         f"{df['f3_latency_seconds'].mean():.1f}s ± {df['f3_latency_seconds'].std():.1f}s"])
             
-            # 碳排放统计
+            # Carbon emissions statistics
             if 'f5_carbon_emissions_kgCO2e_year' in df.columns:
-                stats.append(['年碳排放',
+                stats.append(['Annual Carbon',
                             f"{df['f5_carbon_emissions_kgCO2e_year'].min()/1000:.1f}t - {df['f5_carbon_emissions_kgCO2e_year'].max()/1000:.1f}t",
                             f"{df['f5_carbon_emissions_kgCO2e_year'].mean()/1000:.1f}t ± {df['f5_carbon_emissions_kgCO2e_year'].std()/1000:.1f}t"])
             
-            # 解决方案数量
-            stats.append(['Pareto解数量', f"{len(df)}", ''])
+            # Solution count
+            stats.append(['Pareto Solutions', f"{len(df)}", ''])
             
-            # 主要技术分布
+            # Main sensor distribution
             if 'sensor' in df.columns:
                 sensor_types = df['sensor'].str.extract(r'(\w+)_')[0].value_counts()
                 top_sensor = sensor_types.index[0] if len(sensor_types) > 0 else 'N/A'
-                stats.append(['主要传感器', top_sensor, f"{sensor_types.iloc[0]/len(df)*100:.1f}%"])
+                stats.append(['Main Sensor', top_sensor, f"{sensor_types.iloc[0]/len(df)*100:.1f}%"])
             
-            # 创建表格
-            columns = ['指标', '范围', '均值±标准差']
+            # Create table
+            columns = ['Metric', 'Range', 'Mean±Std']
             
             ax.axis('tight')
             ax.axis('off')
@@ -832,7 +832,7 @@ class Visualizer:
             table.set_fontsize(10)
             table.scale(1, 2)
             
-            # 设置样式
+            # Set style
             for i in range(len(columns)):
                 table[(0, i)].set_facecolor('#2196F3')
                 table[(0, i)].set_text_props(weight='bold', color='white')
@@ -842,9 +842,8 @@ class Visualizer:
                     if i % 2 == 0:
                         table[(i, j)].set_facecolor('#e3f2fd')
         else:
-            ax.text(0.5, 0.5, '无数据', ha='center', va='center', fontsize=12)
+            ax.text(0.5, 0.5, 'No Data', ha='center', va='center', fontsize=12)
             ax.axis('off')
-
 
     def _plot_cost_breakdown(self, df: pd.DataFrame, ax):
         """绘制成本分解图"""
@@ -1072,8 +1071,8 @@ class Visualizer:
 
 
     def _plot_feasibility_comparison(self, pareto_df: pd.DataFrame, 
-                               baseline_results: Dict[str, pd.DataFrame], ax):
-        """绘制可行性比较"""
+                            baseline_results: Dict[str, pd.DataFrame], ax):
+        """Plot feasibility comparison - English version"""
         methods = ['NSGA-III']
         feasible_counts = [len(pareto_df)]
         total_counts = [len(pareto_df)]
@@ -1090,17 +1089,17 @@ class Visualizer:
         x = np.arange(len(methods))
         width = 0.35
         
-        bars1 = ax.bar(x - width/2, total_counts, width, label='总解数', alpha=0.7)
-        bars2 = ax.bar(x + width/2, feasible_counts, width, label='可行解数', alpha=0.7)
+        bars1 = ax.bar(x - width/2, total_counts, width, label='Total Solutions', alpha=0.7)
+        bars2 = ax.bar(x + width/2, feasible_counts, width, label='Feasible Solutions', alpha=0.7)
         
-        ax.set_xlabel('优化方法')
-        ax.set_ylabel('解决方案数量')
+        ax.set_xlabel('Optimization Method')
+        ax.set_ylabel('Number of Solutions')
         ax.set_xticks(x)
         ax.set_xticklabels(methods)
         ax.legend()
         ax.grid(True, axis='y', alpha=0.3)
         
-        # 添加数值标签
+        # Add value labels
         for bars in [bars1, bars2]:
             for bar in bars:
                 height = bar.get_height()
@@ -1108,9 +1107,9 @@ class Visualizer:
                     f'{int(height)}', ha='center', va='bottom', fontsize=8)
 
     def _plot_objective_space_coverage(self, pareto_df: pd.DataFrame,
-                                    baseline_results: Dict[str, pd.DataFrame], ax):
-        """绘制目标空间覆盖"""
-        # 绘制成本vs召回率
+                                baseline_results: Dict[str, pd.DataFrame], ax):
+        """Plot objective space coverage - English version"""
+        # Plot cost vs recall
         if len(pareto_df) > 0:
             ax.scatter(pareto_df['f1_total_cost_USD']/1000, pareto_df['detection_recall'],
                     label='NSGA-III', s=50, alpha=0.7, edgecolors='black', linewidth=0.5)
@@ -1124,16 +1123,16 @@ class Visualizer:
                             label=method.title(), s=30, alpha=0.6, c=colors[i % len(colors)],
                             marker='s')
         
-        ax.set_xlabel('总成本 (k$)')
-        ax.set_ylabel('检测召回率')
+        ax.set_xlabel('Total Cost (k$)')
+        ax.set_ylabel('Detection Recall')
         ax.legend(loc='best', fontsize=8)
         ax.grid(True, alpha=0.3)
 
     def _plot_sustainability_comparison(self, pareto_df: pd.DataFrame,
-                                    baseline_results: Dict[str, pd.DataFrame], ax):
-        """绘制可持续性比较"""
+                                baseline_results: Dict[str, pd.DataFrame], ax):
+        """Plot sustainability comparison - English version"""
         if 'f5_carbon_emissions_kgCO2e_year' in pareto_df.columns and 'system_MTBF_hours' in pareto_df.columns:
-            # 碳排放 vs 可靠性
+            # Carbon emissions vs reliability
             ax.scatter(pareto_df['f5_carbon_emissions_kgCO2e_year']/1000, 
                     pareto_df['system_MTBF_hours']/8760,
                     label='NSGA-III', s=50, alpha=0.7)
@@ -1147,12 +1146,12 @@ class Visualizer:
                                     feasible['system_MTBF_hours']/8760,
                                     label=method.title(), s=30, alpha=0.6, marker='s')
             
-            ax.set_xlabel('年碳排放 (吨CO₂)')
-            ax.set_ylabel('MTBF (年)')
+            ax.set_xlabel('Annual Carbon Emissions (tons CO₂)')
+            ax.set_ylabel('MTBF (years)')
             ax.legend(loc='best', fontsize=8)
             ax.grid(True, alpha=0.3)
         else:
-            ax.text(0.5, 0.5, '无可持续性数据', ha='center', va='center', fontsize=12)
+            ax.text(0.5, 0.5, 'No Sustainability Data', ha='center', va='center', fontsize=12)
             ax.axis('off')
 
     def _plot_hypervolume_comparison(self, pareto_df: pd.DataFrame,
@@ -1168,7 +1167,7 @@ class Visualizer:
         
         bars = ax.bar(methods, hypervolumes, color=plt.cm.viridis(np.linspace(0.2, 0.8, len(methods))))
         
-        ax.set_ylabel('归一化超体积')
+        ax.set_ylabel('Normalized Hypervolume')
         ax.set_ylim(0, 1.2)
         ax.grid(True, axis='y', alpha=0.3)
         
@@ -1185,7 +1184,7 @@ class Visualizer:
         
         bars = ax.bar(methods, times, color=plt.cm.Reds(np.linspace(0.3, 0.9, len(methods))))
         
-        ax.set_ylabel('计算时间 (秒)')
+        ax.set_ylabel('Computation Time (seconds)')
         ax.grid(True, axis='y', alpha=0.3)
         ax.set_yscale('log')
         
@@ -1228,7 +1227,7 @@ class Visualizer:
                         ])
         
         if table_data:
-            columns = ['方法', '成本', '召回率', '延迟', '碳排放']
+            columns = ['Method', 'Cost', 'Recall', 'Latency', 'Carbon']
             
             ax.axis('tight')
             ax.axis('off')
@@ -1243,7 +1242,7 @@ class Visualizer:
                 table[(0, i)].set_facecolor('#4CAF50')
                 table[(0, i)].set_text_props(weight='bold', color='white')
         else:
-            ax.text(0.5, 0.5, '无数据', ha='center', va='center', fontsize=12)
+            ax.text(0.5, 0.5, 'No Data', ha='center', va='center', fontsize=12)
             ax.axis('off')
 
     def _plot_objective_distribution(self, pareto_df: pd.DataFrame,
@@ -1284,6 +1283,6 @@ class Visualizer:
         """绘制多目标雷达图比较"""
         # 这个方法类似于_plot_performance_radar，但比较不同方法
         # 由于代码较长，这里简化处理
-        ax.text(0.5, 0.5, '多目标性能雷达图\n（详见其他图表）', 
+        ax.text(0.5, 0.5, 'Multi-objective performance radar chart\n(see other charts for details)', 
                 ha='center', va='center', fontsize=12)
         ax.axis('off')
