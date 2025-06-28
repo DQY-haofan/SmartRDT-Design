@@ -12,5 +12,5 @@
   
   "n_random_samples": 2000,
   "grid_resolution": 10,
-  "weight_combinations": 200
+  "weight_combinations": 100
 }
