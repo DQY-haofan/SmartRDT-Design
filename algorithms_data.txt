@@ -1,23 +1,21 @@
 Algorithm_Instance_Name,Algorithm_RDF_Type,Algorithm_Architecture,Task_Type,Precision,Recall,F1_Score,mIoU,mAP,FPS,Parameters_M,GFLOPs,Hardware_Requirement,Data_Annotation_Cost_USD,Model_Retraining_Freq_months,Explainability_Score,Processing_Cost_per_GB,Dataset_Used,Key_Features,Training_Requirements
-DL_UNet_Enhanced_VGG16,DeepLearningAlgorithm,Enhanced-UNet-VGG16-Attention,Segmentation,0.78,0.75,0.765,0.72,0,8,28.5,45.2,Standard_GPU,1.50,6,2,0.85,CFD,Good-crack-segmentation balanced-performance,Medium-dataset GPU-required
-DL_UNet_Enhanced_DeepCrack,DeepLearningAlgorithm,Enhanced-UNet-DeepCrack,Segmentation,0.80,0.78,0.79,0.76,0,10,25.3,38.6,Standard_GPU,1.50,6,2,0.80,DeepCrack,Specialized-crack-detection multi-scale,Large-dataset GPU-required
-DL_YOLOv5s_Enhanced,DeepLearningAlgorithm,YOLOv5s-ECA-DecoupledHead,Detection,0.82,0.76,0.79,0,0.80,35,7.2,16.5,Standard_GPU,0.30,9,2,0.50,UAV-Custom,Fast-detection real-time-capable,Moderate-dataset standard-GPU
-DL_DDLCN,DeepLearningAlgorithm,DDLCN-MaskRCNN-Based,Detection-Measurement,0.85,0.83,0.84,0,0.82,12,45.8,89.3,HighEnd_GPU,1.20,6,2,1.20,Custom-Dataset,High-accuracy measurement-capable,Large-dataset high-GPU
-DL_LPDD_YOLO,DeepLearningAlgorithm,LPDD-YOLO-Lightweight,Detection,0.68,0.65,0.665,0,0.66,75,3.7,7.2,Standard_GPU,0.25,12,2,0.30,Custom-Dataset,Edge-deployment lightweight,Small-dataset edge-capable
-DL_Crack_MsCGA,DeepLearningAlgorithm,Crack-MsCGA-MultiScale,Detection,0.84,0.81,0.825,0,0.83,25,11.2,32,Standard_GPU,0.40,9,3,0.65,DH807,Multi-scale good-balance,Medium-dataset standard-GPU
-DL_Transformer_MultiScale,DeepLearningAlgorithm,Transformer-MultiScale-Fusion,Detection-Segmentation-Classification,0.82,0.80,0.81,0.83,0.85,8,85.6,125.4,HighEnd_GPU,2.50,3,1,1.80,10K-Images,State-of-art complex-analysis,Very-large-dataset transformer-capable
-DL_MobileNet_Classifier,DeepLearningAlgorithm,MobileNet-V3,Classification,0.88,0.85,0.865,0,0,100,5.4,0.22,Standard_GPU,0.08,18,3,0.20,Concrete-Crack-Types,Mobile-deployment efficient,Transfer-learning small-data
-DL_YOLOv8_DGS,DeepLearningAlgorithm,YOLOv8-DepthwiseSeparable,Detection,0.86,0.83,0.845,0,0.87,60,8.9,18.3,Standard_GPU,0.35,9,2,0.55,Custom-Dataset,Latest-architecture efficient,Medium-dataset YOLOv8-base
-DL_DenseNet121,DeepLearningAlgorithm,DenseNet121,Classification,0.85,0.82,0.835,0,0,50,8.1,2.9,Standard_GPU,0.08,18,3,0.25,Crack-Types,Dense-connections stable,Transfer-learning standard
-DL_ResNet50,DeepLearningAlgorithm,ResNet50,Classification,0.83,0.80,0.815,0,0,70,25.6,4.1,Standard_GPU,0.08,18,3,0.30,Crack-Types,Proven-architecture reliable,Transfer-learning standard
-DL_VGG16,DeepLearningAlgorithm,VGG16,Classification,0.82,0.78,0.80,0,0,35,138.4,15.5,Standard_GPU,0.08,18,3,0.40,Crack-Types,Classic-architecture simple,Large-model transfer-learning
-DL_CrackFormer,DeepLearningAlgorithm,CrackFormer-Transformer,Detection,0.87,0.84,0.855,0.81,0,6,120.5,180.2,HighEnd_GPU,3.00,3,1,2.50,Crack-Dataset,Transformer-based advanced,Large-resources transformer-specific
-DL_MRC_YOLOv8,DeepLearningAlgorithm,MRC-YOLOv8-MultiResolution,Detection,0.88,0.85,0.865,0,0.88,40,12.3,25.6,HighEnd_GPU,0.60,6,2,0.70,Multi-Resolution,Multi-resolution adaptive,Complex-setup variable-input
-ML_RandomForest_LiDAR,MachineLearningAlgorithm,RandomForest-NormalizedIntensity,Classification,0.82,0.78,0.80,0.83,0,800,0.05,0.01,CPU,0.00,24,4,0.25,LiDAR-PointCloud,Feature-based robust,Feature-engineering CPU-only
-ML_SVM,MachineLearningAlgorithm,SVM-RBF-Kernel,Classification,0.85,0.82,0.835,0,0,1500,0.01,0.001,CPU,0.00,24,4,0.20,Crack-Patches,Classical-ML good-accuracy,Feature-extraction kernel-tuning
-ML_RandomForest_Density,MachineLearningAlgorithm,RF-DensityClustering,Detection,0.80,0.76,0.78,0,0,1200,0.08,0.02,CPU,0.00,24,4,0.30,CFD-Dataset,Density-based spatial-aware,Feature-design clustering
-PC_Tgrid_Method,PointCloudAlgorithm,Tgrid-GridConversion,Detection-Measurement,0.84,0.82,0.83,0,0,80,0.5,2.5,CPU,0.00,N/A,5,0.50,MLS-PointCloud,3D-native grid-based,Point-cloud-specific parameters
-PC_PointNetPlus_Attention,PointCloudAlgorithm,PointNet++-Attention,Detection,0.83,0.80,0.815,0.75,0,40,12.8,35.7,HighEnd_GPU,0.80,9,2,0.95,PointCloud-Data,Deep-3D attention-enhanced,3D-annotation GPU-required
-Traditional_Canny,TraditionalAlgorithm,Canny-EdgeDetection,Detection,0.55,0.52,0.535,0,0,400,0.001,0.1,CPU,0.00,N/A,5,0.12,Grayscale,Simple-fast limited-accuracy,Parameter-tuning lighting-sensitive
-Traditional_Otsu,TraditionalAlgorithm,Otsu-AdaptiveThreshold,Segmentation,0.58,0.54,0.56,0,0,600,0.001,0.05,CPU,0.00,N/A,5,0.10,Grayscale,Automatic-threshold basic,Simple-scenes uniform-lighting
-Traditional_Morphology,TraditionalAlgorithm,Morphological-Operations,Enhancement,0.60,0.56,0.58,0,0,800,0.001,0.02,CPU,0.00,N/A,5,0.08,Binary-Image,Preprocessing noise-removal,Support-role parameter-sensitive
+DL_YOLOv8_SOTA,DeepLearningAlgorithm,YOLOv8x,Detection,0.98,0.97,0.975,0,0.993,65,68.2,120.4,Standard_GPU,1.50,6,2,0.80,COCO+Custom,State-of-art real-time,5000-images RTX3090
+DL_YOLOv8_Nano,DeepLearningAlgorithm,YOLOv8n,Detection,0.94,0.92,0.93,0,0.95,120,3.2,8.7,Standard_GPU,1.00,9,2,0.40,COCO+Custom,Lightweight edge-ready,2000-images RTX3060
+DL_YOLOv7_Standard,DeepLearningAlgorithm,YOLOv7,Detection,0.96,0.94,0.95,0,0.98,70,36.9,104.7,Standard_GPU,1.20,6,2,0.60,Custom-10k,Proven architecture,3000-images
+DL_YOLOv5s_Optimized,DeepLearningAlgorithm,YOLOv5s,Detection,0.92,0.90,0.91,0,0.94,85,7.2,16.5,Standard_GPU,0.80,9,2,0.45,COCO-Pretrained,Fast reliable,2000-images
+DL_AttentionUNet_Crack,DeepLearningAlgorithm,Attention-U-Net,Segmentation,0.95,0.93,0.94,0.67,0,20,34.5,45.8,Standard_GPU,2.00,6,2,1.20,CrackForest,High-accuracy segmentation,Pixel-level-annotation
+DL_SAM_Detectron2,DeepLearningAlgorithm,SAM+Detectron2,Detection-Segmentation,0.90,0.88,0.89,0.69,0.85,15,180.5,210.3,HighEnd_GPU,3.00,3,1,1.80,Mixed-Dataset,Foundation-model advanced,Large-dataset
+DL_UNet_Standard,DeepLearningAlgorithm,U-Net,Segmentation,0.88,0.85,0.865,0.60,0,25,31.0,40.5,Standard_GPU,1.50,9,2,0.90,DeepCrack,Classic segmentation,Pixel-annotation
+DL_MaskRCNN_ResNet50,DeepLearningAlgorithm,Mask-RCNN,Instance-Segmentation,0.87,0.84,0.855,0.58,0.86,18,44.2,95.5,Standard_GPU,2.50,6,2,1.10,COCO+Custom,Instance-level detection,Complex-annotation
+DL_MobileNetV3_Edge,DeepLearningAlgorithm,MobileNetV3,Classification,0.85,0.82,0.835,0,0,100,5.4,0.22,Edge_Device,0.50,12,3,0.25,ImageNet+Crack,Mobile-optimized,Transfer-learning
+DL_EfficientNet_B0,DeepLearningAlgorithm,EfficientNet-B0,Classification,0.86,0.83,0.845,0,0,80,5.3,0.39,Standard_GPU,0.60,12,3,0.30,Crack-Dataset,Efficient scaling,Small-dataset
+ML_SVM_Optimized,MachineLearningAlgorithm,SVM-RBF,Classification,0.92,0.89,0.905,0,0,25,0.01,0.001,CPU,0.00,24,4,0.15,Feature-Based,High-accuracy CPU-only,Feature-engineering
+ML_RandomForest_Fast,MachineLearningAlgorithm,Random-Forest,Classification,0.90,0.88,0.89,0,0,30,0.05,0.01,CPU,0.00,24,4,0.12,Feature-Based,Robust fast,Standard-features
+ML_XGBoost_Tuned,MachineLearningAlgorithm,XGBoost,Classification,0.91,0.89,0.90,0,0,35,0.1,0.02,CPU,0.00,18,4,0.18,Structured-Data,State-of-art ML,Hyperparameter-tuning
+Traditional_Canny_Optimized,TraditionalAlgorithm,Canny-Edge,Detection,0.72,0.68,0.70,0,0,150,0.001,0.1,CPU,0.00,N/A,5,0.08,Grayscale,Fast simple,Parameter-tuning
+Traditional_Otsu_Enhanced,TraditionalAlgorithm,Otsu-Threshold,Segmentation,0.70,0.65,0.675,0,0,180,0.001,0.05,CPU,0.00,N/A,5,0.06,Grayscale,Automatic threshold,Good-lighting
+Traditional_Morphology,TraditionalAlgorithm,Morphological,Enhancement,0.68,0.63,0.655,0,0,200,0.001,0.03,CPU,0.00,N/A,5,0.05,Binary,Preprocessing,Clean-images
+Hybrid_CNN_SVM,DeepLearningAlgorithm,CNN+SVM,Classification,0.95,0.93,0.94,0,0,20,15.5,25.3,Standard_GPU,1.00,12,3,0.70,Mixed-Approach,Feature+classifier,Moderate-training
+DL_RetinaNet_Focal,DeepLearningAlgorithm,RetinaNet,Detection,0.89,0.86,0.875,0,0.90,40,36.4,67.9,Standard_GPU,1.20,9,2,0.75,Open-Images,Focal-loss one-stage,Imbalanced-data
+DL_FasterRCNN_FPN,DeepLearningAlgorithm,Faster-RCNN-FPN,Detection,0.88,0.85,0.865,0,0.89,22,41.8,85.6,Standard_GPU,1.40,9,2,0.85,COCO-Based,Two-stage accurate,Standard-training
+Edge_TinyYOLO_v4,DeepLearningAlgorithm,Tiny-YOLOv4,Detection,0.82,0.78,0.80,0,0.84,150,6.1,6.9,Edge_Device,0.40,12,3,0.20,Compressed,Ultra-light fast,Limited-accuracy
