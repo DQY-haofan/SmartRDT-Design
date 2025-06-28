@@ -288,7 +288,7 @@ class EnhancedFitnessEvaluatorV3:
         
         # 定期记录进度
         if self._evaluation_count % 1000 == 0:
-            logger.info(f"已评估 {self._evaluation_count} 个解决方案。")
+            # logger.info(f"已评估 {self._evaluation_count} 个解决方案。")
             
             # 记录目标范围
             logger.debug(f"目标范围:")
