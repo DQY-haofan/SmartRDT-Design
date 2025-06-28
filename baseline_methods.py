@@ -225,10 +225,10 @@ class GridSearchBaseline(BaselineMethod):
         start_time = time.time()
         
         # 专注于可能可行的区域
-            sensor_indices = np.linspace(0.2, 1.0, 5)  # 覆盖所有传感器
-            algo_indices = np.linspace(0, 1, 5)        # 所有算法
-            deployment_values = [0.0, 0.5, 1.0]        # 所有部署选项
-            cycle_values = np.linspace(0.05, 0.3, 5)  # 更多周期选项
+        sensor_indices = np.linspace(0.2, 1.0, 5)  # 覆盖所有传感器
+        algo_indices = np.linspace(0, 1, 5)        # 所有算法
+        deployment_values = [0.0, 0.5, 1.0]        # 所有部署选项
+        cycle_values = np.linspace(0.05, 0.3, 5)  # 更多周期选项
         
         solution_id = 0
         
@@ -316,7 +316,15 @@ class WeightedSumBaseline(BaselineMethod):
                     
                     # 梯度下降式的改进
                     x = self._local_search_step(x, weights)
-            
+                        # 即使没有找到可行解也要记录
+            if best_solution is None:
+                # 记录失败的尝试
+                x = self._generate_smart_initial_point()
+                objectives, constraints = self.evaluator._evaluate_single(x)
+                result = self._create_result_entry(x, objectives, constraints, weight_idx + 1)
+                result['weights'] = weights.tolist()
+                result['optimization_failed'] = True
+                self.results.append(result)
             # 存储这个权重组合的最佳解决方案
             if best_solution is not None:
                 result = self._create_result_entry(

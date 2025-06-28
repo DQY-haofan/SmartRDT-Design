@@ -25,15 +25,15 @@ logger = logging.getLogger(__name__)
 
 # IEEE Double-column publication settings
 IEEE_SETTINGS = {
-    'single_column_width': 3.5,  # inches
-    'double_column_width': 7.16,  # inches
-    'font_size': 12,  # Increased from 10
-    'label_size': 14,  # Increased from 11
-    'title_size': 16,  # Increased from 12
-    'legend_size': 11,  # Increased from 9
-    'tick_size': 11,  # Increased from 9
-    'line_width': 2.0,  # Increased from 1.5
-    'marker_size': 10,  # Increased from 8
+    'single_column_width': 3.5,   # inches (88.9mm)
+    'double_column_width': 7.16,  # inches (181.8mm)
+    'font_size': 10,              # 改回标准10pt
+    'label_size': 11,             # 轴标签
+    'title_size': 12,             # 标题
+    'legend_size': 9,             # 图例
+    'tick_size': 9,               # 刻度
+    'line_width': 1.5,            # 线宽
+    'marker_size': 8,             # 标记大小
 }
 
 # Update matplotlib settings for IEEE format
@@ -407,8 +407,11 @@ class Visualizer:
     
     def _create_single_spider_chart(self, solution, name, df):
         """Create a single spider chart"""
-        fig = plt.figure(figsize=(IEEE_SETTINGS['single_column_width'], 4))
-        ax = plt.subplot(111, projection='polar')
+        # 使用更紧凑的布局
+        fig, ax = plt.figure(figsize=(IEEE_SETTINGS['single_column_width'], 3.5))
+        # 调整文本框位置避免重叠
+
+    
         
         # Categories
         categories = ['Cost', 'Recall', 'Latency', 'Disruption', 'Carbon', 'MTBF']
@@ -462,7 +465,7 @@ class Visualizer:
         # Add text box with actual values
         textstr = '\n'.join([f'{cat}: {val}' for cat, val in zip(categories, actual_values)])
         props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
-        ax.text(1.5, 0.5, textstr, transform=ax.transAxes, fontsize=10,
+        ax.text(1.5, 0.5, textstr, transform=ax.transAxes, fontsize=8,
                 verticalalignment='center', bbox=props)
         
         plt.tight_layout()

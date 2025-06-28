@@ -460,7 +460,7 @@ class EnhancedFitnessEvaluatorV3:
         base_recall = self._query_property(config['algorithm'], 'hasRecall', 0.7)
         
         # 应用现实世界性能折扣
-        real_world_factor = 0.85  # 实验室到现实的性能下降
+        real_world_factor = 1  # 实验室到现实的性能下降
         base_recall *= real_world_factor
         
         # 传感器精度影响（使用改进的S型曲线）
