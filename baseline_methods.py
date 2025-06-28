@@ -225,20 +225,10 @@ class GridSearchBaseline(BaselineMethod):
         start_time = time.time()
         
         # 专注于可能可行的区域
-        # 便宜的传感器（IoT，车载）
-        sensor_indices = [0.8, 0.85, 0.9, 0.95, 1.0]
-        
-        # 算法 - 所有类型
-        algo_indices = np.linspace(0, 1, min(resolution, 5))
-        
-        # LOD - 主要是Meso
-        lod_values = [0.5]  # 只用Meso以减少搜索空间
-        
-        # 部署 - 偏好云（便宜）
-        deployment_values = [0.8, 1.0]  # Hybrid和Cloud
-        
-        # 检查周期
-        cycle_values = [0.08, 0.12, 0.16, 0.2]  # 30, 45, 60, 75天
+            sensor_indices = np.linspace(0.2, 1.0, 5)  # 覆盖所有传感器
+            algo_indices = np.linspace(0, 1, 5)        # 所有算法
+            deployment_values = [0.0, 0.5, 1.0]        # 所有部署选项
+            cycle_values = np.linspace(0.05, 0.3, 5)  # 更多周期选项
         
         solution_id = 0
         

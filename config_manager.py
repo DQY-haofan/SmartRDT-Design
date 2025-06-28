@@ -72,6 +72,7 @@ class ConfigManager:
     
     # 优化参数
     n_objectives: int = 6
+    n_partitions: int = 4  # 添加这一行
     population_size: int = 300
     n_generations: int = 200
     crossover_prob: float = 0.9
