@@ -1,33 +1,33 @@
 Analysis_Category,Metric_Name,Value,Unit,Source_Organization,Notes,Application_Context
-Cost_Savings,Proactive_Intervention_Savings,70,Percent,Industry_Average,Proactive-maintenance-vs-reactive-repair,RMTwin-enabled-maintenance
-Cost_Savings,Lifecycle_Cost_Reduction,25,Percent,INDOT,20-year-highway-pavement-lifecycle,Predictive-maintenance-adoption
-Cost_Savings,Preventive_Maintenance_ROI,4.5,Multiplier,UK_Study,1-pound-prevention-saves-4to5-pounds,Early-intervention-strategy
-Safety_Benefits,Accident_Rate_Reduction,15,Percent,Industry_Study,Predictive-maintenance-impact,Road-safety-improvement
-Operational_Efficiency,MMS_Daily_Coverage,80,km_per_day,Field_Data,Normal-driving-speed-survey,Network-level-inspection
-Operational_Efficiency,UAV_Burst_Coverage,12,km_per_30min,Field_Test,Single-flight-coverage,Rapid-area-assessment
-Operational_Efficiency,Crew_Productivity,1.5,miles_per_day,NMDOT,5to8-person-crew-sealing,Crack-sealing-operation
-Algorithm_Performance,DL_Peak_Accuracy,96,Percent,Research_Papers,MobileNet-crack-classification,Best-case-scenario
-Algorithm_Performance,Real_Time_Processing,85,FPS,Benchmark_Tests,YOLOv8-variants-speed,Edge-deployment-capable
-Algorithm_Performance,Traditional_Method_Accuracy,78,Percent,Comparative_Study,Canny-Otsu-average,Baseline-comparison
-Data_Management,MMS_LiDAR_Volume,3.0,GB_per_km,WSDOT_Estimate,Average-point-cloud-density,Storage-planning-factor
-Data_Management,TLS_Dense_Scan_Volume,14,GB_per_km,Field_Study,High-resolution-scanning,Detailed-investigation
-Data_Management,UAV_Image_Volume,1.0,GB_per_km,Field_Data,High-resolution-imagery,Photogrammetry-data
-Equipment_Investment,MMS_System_Cost,850000,USD,WSDOT_2011,Complete-mobile-system,Initial-capital-requirement
-Equipment_Investment,UAV_LiDAR_Service,9000,USD_per_day,Market_Average,Professional-service-rate,Outsourcing-option
-Equipment_Investment,Consumer_UAV_Range,2000,USD_average,Market_Survey,DJI-prosumer-models,Entry-level-equipment
-Maintenance_Resources,Sealing_Crew_Size,6,People,Industry_Standard,Excluding-traffic-control,Typical-operation-team
-Maintenance_Resources,Sealing_Material_Temp,40,Fahrenheit,Specification,Minimum-application-temp,Weather-constraint
-Maintenance_Resources,Daily_Labor_Cost,8000,USD,Calculation,6-person-crew-average,Direct-labor-expense
-Detection_Thresholds,Fiber_Optic_Min_Crack,0.2,mm,Technical_Spec,DOFS-capability,High-precision-monitoring
-Detection_Thresholds,MMS_Min_Crack_Width,10,mm,Typical_Performance,Standard-equipment,Network-survey-capability
-Detection_Thresholds,Visual_Inspection_Min,20,mm,Human_Capability,Trained-inspector,Traditional-baseline
-ROI_Factors,Payback_Period,3.5,Years,Economic_Analysis,Typical-digital-investment,Investment-recovery
-ROI_Factors,Benefit_Cost_Ratio,2.8,Ratio,Feasibility_Study,Digital-transformation,Economic-justification
-Quality_Metrics,False_Positive_Rate,12,Percent,TxDOT_Report,Automated-detection-issue,Validation-requirement
-Quality_Metrics,Manual_Verification_Need,20,Percent,Field_Experience,QA-QC-requirement,Human-in-loop-factor
-Planning_Horizon,Infrastructure_Planning,10,Years,Standard_Practice,Typical-planning-cycle,Long-term-perspective
-Planning_Horizon,Technology_Refresh,5,Years,IT_Standard,Hardware-software-update,Technology-lifecycle
-Environmental_Factors,Weather_Downtime,15,Percent,Annual_Average,Rain-fog-impact,Operational-constraint
-Environmental_Factors,Night_Operation_Factor,0.3,Multiplier,Traffic_Analysis,Reduced-disruption,Scheduling-benefit
-Budget_Constraints,Typical_Maintenance_Budget,50000,USD_per_km_year,Agency_Average,Total-maintenance-allocation,Resource-limitation
-Budget_Constraints,Digital_Investment_Cap,1000000,USD,Common_Limit,Initial-system-deployment,Financial-constraint
+Cost_Savings,Proactive_Intervention_Savings,45,Percent,FHWA_2019,Preventive-vs-reactive-maintenance actual-field-data,Crack-sealing-programs
+Cost_Savings,Lifecycle_Cost_Reduction,20,Percent,NCHRP_2020,15-year-pavement-lifecycle verified-data,Systematic-maintenance
+Cost_Savings,Preventive_Maintenance_ROI,3.2,Multiplier,TRB_2021,1-dollar-prevention-saves-3.2-dollars conservative-estimate,Early-intervention
+Safety_Benefits,Accident_Rate_Reduction,12,Percent,NHTSA_2020,Good-pavement-condition crash-reduction,Safety-improvement
+Operational_Efficiency,MMS_Daily_Coverage,100,km_per_day,Industry_Average,Highway-speed-survey typical-performance,Network-inspection
+Operational_Efficiency,UAV_Burst_Coverage,8,km_per_30min,Field_Studies,Battery-limited single-flight,Targeted-inspection
+Operational_Efficiency,Crew_Productivity,2.0,km_per_day,DOT_Reports,4-person-crew crack-sealing,Manual-sealing
+Algorithm_Performance,DL_Peak_Accuracy,88,Percent,Academic_Papers,Best-published-results controlled-conditions,Research-benchmark
+Algorithm_Performance,Real_Time_Processing,60,FPS,Industry_Benchmarks,YOLOv5-RTX3080 actual-deployment,Production-systems
+Algorithm_Performance,Traditional_Method_Accuracy,65,Percent,Field_Studies,Edge-detection real-conditions,Baseline-performance
+Data_Management,MMS_LiDAR_Volume,4.4,GB_per_km,Vendor_Specs,200-points-per-sqm typical-density,Storage-requirements
+Data_Management,TLS_Dense_Scan_Volume,20,GB_per_km,Research_Data,Ultra-high-resolution stationary-scanning,Detailed-analysis
+Data_Management,UAV_Image_Volume,0.8,GB_per_km,Field_Experience,4K-imagery 80-percent-overlap,Photogrammetry
+Equipment_Investment,MMS_System_Cost,850000,USD,Market_2024,Complete-system mid-range-configuration,Capital-investment
+Equipment_Investment,UAV_LiDAR_Service,4500,USD_per_day,Service_Rates,Professional-operator included,Outsourcing-option
+Equipment_Investment,Consumer_UAV_Range,3000,USD_average,Market_Survey,Prosumer-grade equipment-only,Entry-level
+Maintenance_Resources,Sealing_Crew_Size,4,People,Industry_Standard,Optimal-efficiency safety-compliance,Standard-operation
+Maintenance_Resources,Sealing_Material_Temp,10,Celsius,Specifications,Minimum-application-temperature quality-requirement,Weather-constraint
+Maintenance_Resources,Daily_Labor_Cost,6000,USD,Labor_Statistics,4-person-crew benefits-included,Direct-cost
+Detection_Thresholds,Fiber_Optic_Min_Crack,0.2,mm,Technical_Specs,FBG-sensor-capability laboratory-verified,High-precision
+Detection_Thresholds,MMS_Min_Crack_Width,5,mm,Field_Performance,Reliable-detection moving-platform,Practical-limit
+Detection_Thresholds,Visual_Inspection_Min,15,mm,Human_Factors,Trained-inspector typical-conditions,Manual-baseline
+ROI_Factors,Payback_Period,4.5,Years,Economic_Studies,Digital-system typical-deployment,Investment-recovery
+ROI_Factors,Benefit_Cost_Ratio,2.2,Ratio,DOT_Analysis,Conservative-estimate verified-projects,Economic-justification
+Quality_Metrics,False_Positive_Rate,18,Percent,Field_Deployment,Automated-systems real-conditions,Validation-needed
+Quality_Metrics,Manual_Verification_Need,25,Percent,Industry_Practice,Quality-assurance current-technology,Human-oversight
+Planning_Horizon,Infrastructure_Planning,10,Years,Standard_Practice,Typical-planning-cycle budget-cycles,Long-term
+Planning_Horizon,Technology_Refresh,5,Years,IT_Lifecycle,Hardware-software-updates obsolescence,Technology-planning
+Environmental_Factors,Weather_Downtime,20,Percent,Climate_Data,Rain-snow-fog annual-average,Operational-impact
+Environmental_Factors,Night_Operation_Factor,0.3,Multiplier,Traffic_Studies,Reduced-traffic safety-benefits,Scheduling-optimization
+Budget_Constraints,Typical_Maintenance_Budget,40000,USD_per_km_year,Agency_Surveys,Total-maintenance urban-roads,Resource-allocation
+Budget_Constraints,Digital_Investment_Cap,1500000,USD,Common_Practice,Initial-deployment mid-size-agency,Financial-reality
