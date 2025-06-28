@@ -154,6 +154,15 @@ def main():
                     baseline_results=all_results.get('baselines', {}).get('dataframes')
                 )
                 logger.info("可视化完成")
+                # 新增：增强的基线对比可视化
+                if 'baselines' in all_results:
+                    logger.info("生成增强的基线对比图表...")
+                    visualizer.create_enhanced_baseline_comparison(
+                        all_results['nsga3']['dataframe'],
+                        all_results['baselines']['dataframes']
+                    )
+                
+                logger.info("可视化完成")
             else:
                 logger.warning("没有可用于可视化的解")
         

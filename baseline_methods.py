@@ -214,8 +214,9 @@ class RandomSearchBaseline(BaselineMethod):
         return x
 
 
+
 class GridSearchBaseline(BaselineMethod):
-    """改进的网格搜索，专注于可行区域"""
+    """改进的网格搜索，更全面的参数覆盖"""
     
     def optimize(self) -> pd.DataFrame:
         """在关键变量上进行网格搜索"""
@@ -224,33 +225,38 @@ class GridSearchBaseline(BaselineMethod):
         
         start_time = time.time()
         
-        # 专注于可能可行的区域
-        sensor_indices = np.linspace(0.2, 1.0, 5)  # 覆盖所有传感器
-        algo_indices = np.linspace(0, 1, 5)        # 所有算法
-        deployment_values = [0.0, 0.5, 1.0]        # 所有部署选项
-        cycle_values = np.linspace(0.05, 0.3, 5)  # 更多周期选项
+        # 根据resolution动态生成网格点
+        # resolution越高，网格越密
+        n_points = max(3, resolution)  # 至少3个点
         
+        # 为每个关键变量生成网格
+        grids = {
+            'sensor': np.linspace(0.0, 0.99, min(n_points, len(self.evaluator.solution_mapper.sensors))),
+            'algorithm': np.linspace(0.0, 0.99, min(n_points, len(self.evaluator.solution_mapper.algorithms))),
+            'data_rate': np.linspace(0.2, 0.8, max(3, n_points//2)),
+            'threshold': np.linspace(0.5, 0.8, max(3, n_points//2)),
+            'deployment': [0.0, 0.5, 1.0],  # 离散选项
+            'crew_size': np.linspace(0.1, 0.5, max(3, n_points//2)),  # 1-5人
+            'cycle': np.linspace(0.08, 0.25, max(4, n_points//2))  # 30-90天
+        }
+        
+        # 使用采样策略避免组合爆炸
         solution_id = 0
+        max_evaluations = 5000  # 限制最大评估数
         
-        for sensor_idx in sensor_indices:
-            for algo_idx in algo_indices:
-                for deployment in deployment_values:
-                    for cycle in cycle_values:
+        # 策略1：完整网格搜索关键变量
+        for sensor_idx in grids['sensor'][:resolution]:
+            for algo_idx in grids['algorithm'][:resolution]:
+                for threshold in grids['threshold']:
+                    for cycle in grids['cycle']:
                         solution_id += 1
+                        if solution_id > max_evaluations:
+                            break
                         
                         # 创建解决方案向量
-                        x = np.zeros(11)
-                        x[0] = sensor_idx
-                        x[1] = 0.5  # 中等数据率
-                        x[2] = 0.5  # Meso LOD
-                        x[3] = 0.5  # Meso LOD
-                        x[4] = algo_idx
-                        x[5] = 0.7  # 高阈值
-                        x[6] = 0.0  # 云存储（最便宜）
-                        x[7] = 0.5  # 中等通信
-                        x[8] = deployment
-                        x[9] = 0.3  # 3人团队
-                        x[10] = cycle
+                        x = self._create_grid_solution(
+                            sensor_idx, algo_idx, threshold, cycle, grids
+                        )
                         
                         # 评估
                         objectives, constraints = self.evaluator._evaluate_single(x)
@@ -259,6 +265,16 @@ class GridSearchBaseline(BaselineMethod):
                         self.results.append(
                             self._create_result_entry(x, objectives, constraints, solution_id)
                         )
+                        
+                        # 早期反馈
+                        if solution_id % 100 == 0:
+                            feasible_count = sum(1 for r in self.results if r['is_feasible'])
+                            logger.debug(f"  Grid: {solution_id} evaluated, {feasible_count} feasible")
+        
+        # 策略2：如果可行解太少，尝试更聪明的组合
+        if sum(1 for r in self.results if r['is_feasible']) < 10:
+            logger.info("  Few feasible solutions found, trying smart combinations...")
+            self._add_smart_grid_points(grids, max_evaluations - solution_id)
         
         self.execution_time = time.time() - start_time
         
@@ -269,10 +285,81 @@ class GridSearchBaseline(BaselineMethod):
         df = pd.DataFrame(self.results)
         logger.info(f"Grid Search completed in {self.execution_time:.2f} seconds")
         logger.info(f"  Evaluated {len(df)} grid points")
-        logger.info(f"  Found {df['is_feasible'].sum()} feasible solutions")
+        logger.info(f"  Found {df['is_feasible'].sum() if 'is_feasible' in df else 0} feasible solutions")
         
         return df
-
+    
+    def _create_grid_solution(self, sensor_idx, algo_idx, threshold, cycle, grids):
+        """创建网格解决方案，包含一些随机性"""
+        x = np.zeros(11)
+        
+        # 核心网格变量
+        x[0] = sensor_idx
+        x[4] = algo_idx
+        x[5] = threshold
+        x[10] = cycle
+        
+        # 智能设置其他变量
+        # 数据率：根据传感器类型调整
+        if sensor_idx > 0.8:  # IoT传感器
+            x[1] = np.random.uniform(0.1, 0.3)  # 低数据率
+        else:
+            x[1] = np.random.uniform(0.4, 0.7)  # 中等数据率
+        
+        # LOD：倾向于Meso
+        x[2] = 0.5  # Meso
+        x[3] = 0.5  # Meso
+        
+        # 存储：倾向于云（便宜）
+        x[6] = np.random.choice([0.0, 0.0, 0.5], p=[0.7, 0.2, 0.1])
+        
+        # 通信：中等
+        x[7] = np.random.uniform(0.4, 0.6)
+        
+        # 部署：倾向于云
+        x[8] = np.random.choice([0.5, 1.0], p=[0.3, 0.7])
+        
+        # 团队规模：2-4人
+        x[9] = np.random.uniform(0.2, 0.4)
+        
+        return x
+    
+    def _add_smart_grid_points(self, grids, remaining_budget):
+        """添加更聪明的网格点组合"""
+        # 基于领域知识的良好组合
+        smart_combinations = [
+            # 低成本IoT方案
+            {'sensor': 0.95, 'algo': 0.8, 'threshold': 0.6, 'cycle': 0.15},
+            # 平衡方案
+            {'sensor': 0.5, 'algo': 0.5, 'threshold': 0.7, 'cycle': 0.1},
+            # 高性能方案
+            {'sensor': 0.3, 'algo': 0.2, 'threshold': 0.8, 'cycle': 0.08},
+        ]
+        
+        for i, combo in enumerate(smart_combinations):
+            if i >= remaining_budget:
+                break
+                
+            x = np.zeros(11)
+            x[0] = combo['sensor']
+            x[4] = combo['algo']
+            x[5] = combo['threshold']
+            x[10] = combo['cycle']
+            
+            # 设置其他合理值
+            x[1] = 0.5   # 数据率
+            x[2] = 0.5   # Meso LOD
+            x[3] = 0.5   # Meso LOD
+            x[6] = 0.0   # 云存储
+            x[7] = 0.5   # 4G
+            x[8] = 1.0   # 云部署
+            x[9] = 0.3   # 3人
+            
+            objectives, constraints = self.evaluator._evaluate_single(x)
+            self.results.append(
+                self._create_result_entry(x, objectives, constraints, len(self.results) + 1)
+            )
+            
 
 class WeightedSumBaseline(BaselineMethod):
     """改进的加权和优化"""
