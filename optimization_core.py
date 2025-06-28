@@ -57,7 +57,7 @@ class RMTwinProblem(Problem):
         # 记录进度
         self._eval_count += len(X)
         if self._eval_count % 1000 == 0:
-            logger.info(f"已评估 {self._eval_count} 个解决方案...")
+            # logger.info(f"已评估 {self._eval_count} 个解决方案...")
             
             # 记录当前最佳值
             best_indices = {
