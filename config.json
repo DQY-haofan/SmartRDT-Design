@@ -1,16 +1,16 @@
 {
-  "population_size": 500,
-  "n_generations": 100,
-  "n_partitions": 4,
+  "population_size": 300,
+  "n_generations": 150,
+  "n_partitions": 6,
   
-  "min_recall_threshold": 0.7,
+  "min_recall_threshold": 0.6,
   "max_latency_seconds": 120.0,
-  "max_disruption_hours": 600.0,
+  "max_disruption_hours": 1000.0,
   "budget_cap_usd": 5000000,
   "min_mtbf_hours": 1000,
   "max_carbon_emissions_kgCO2e_year": 100000,
   
   "n_random_samples": 500,
-  "grid_resolution": 10,
+  "grid_resolution": 20,
   "weight_combinations": 100
 }
