@@ -1,12 +1,12 @@
 {
-  "population_size": 300,
+  "population_size": 600,
   "n_generations": 150,
-  "n_partitions": 6,
+  "n_partitions": 4,
   
-  "min_recall_threshold": 0.6,
-  "max_latency_seconds": 120.0,
+  "min_recall_threshold": 0.5,
+  "max_latency_seconds": 180.0,
   "max_disruption_hours": 1000.0,
-  "budget_cap_usd": 5000000,
+  "budget_cap_usd": 10000000,
   "min_mtbf_hours": 1000,
   "max_carbon_emissions_kgCO2e_year": 100000,
   

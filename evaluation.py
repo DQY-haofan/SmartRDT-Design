@@ -690,8 +690,8 @@ class EnhancedFitnessEvaluatorV3:
         # 查找匹配的部署类型
         deploy_data = {'compute_factor': 1.5, 'startup_overhead': 2.0}
         for deploy_key, deploy_spec in deploy_performance.items():
-            if any(keyword in deploy_type for keyword in ['Edge', 'Cloud', 'Hybrid', 'OnPremise']):
-                if keyword in deploy_key:
+            for keyword in ['Edge', 'Cloud', 'Hybrid', 'OnPremise']:
+                if keyword in deploy_type and keyword in deploy_key:
                     deploy_data = deploy_spec
                     break
         
