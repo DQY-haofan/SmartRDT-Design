@@ -501,70 +501,56 @@ class EnhancedFitnessEvaluatorV3:
         return 1 - np.clip(base_recall, 0.01, 0.99)  # 返回1-recall用于最小化
     
     def _calculate_latency_enhanced(self, config: Dict) -> float:
-        """增强的延迟计算"""
-        # 数据采集时间
-        data_rate = config['data_rate']
-        acq_time = 1 / data_rate if data_rate > 0 else 1.0
+        """增强的延迟计算 - 更真实的估计"""
+        # 数据采集时间（考虑实际扫描时间）
+        if 'MMS' in str(config['sensor']):
+            # 移动测绘系统需要覆盖整个路段
+            coverage_speed = self._query_property(config['sensor'], 'hasOperatingSpeedKmh', 80)
+            road_length = self.config.road_network_length_km
+            acq_time = (road_length / coverage_speed) * 3600  # 转换为秒
+        else:
+            data_rate = config['data_rate']
+            acq_time = 60 / data_rate  # 假设每次采集需要处理60个样本
         
-        # 基于传感器和LOD的数据量
+        # 数据传输时间（更真实的估计）
         base_data_gb = self._query_property(config['sensor'], 'hasDataVolumeGBPerKm', 1.0)
-        
         lod_multipliers = {'Micro': 2.0, 'Meso': 1.0, 'Macro': 0.5}
         data_gb = base_data_gb * lod_multipliers.get(config['geo_lod'], 1.0)
         
-        # 通信延迟（真实带宽）
+        # 通信时间（考虑实际网络条件）
         comm_type = str(config['communication']).split('#')[-1]
-        comm_specs = {
-            'Communication_5G_Network': {'bandwidth': 1000, 'latency': 0.01},
-            'Communication_LoRaWAN': {'bandwidth': 0.05, 'latency': 1.0},
-            'Communication_Fiber_Optic': {'bandwidth': 10000, 'latency': 0.002},
-            'Communication_4G_LTE': {'bandwidth': 100, 'latency': 0.05}
-        }
+        if 'LoRaWAN' in comm_type:
+            comm_time = data_gb * 1000 * 8 / 0.05  # 50kbps
+        elif '4G' in comm_type:
+            comm_time = data_gb * 1000 * 8 / 50  # 实际4G速度约50Mbps
+        elif '5G' in comm_type:
+            comm_time = data_gb * 1000 * 8 / 200  # 实际5G速度约200Mbps
+        else:  # Fiber
+            comm_time = data_gb * 1000 * 8 / 1000  # 1Gbps
         
-        comm_data = comm_specs.get(comm_type, {'bandwidth': 100, 'latency': 0.05})
+        # 处理时间（基于算法复杂度）
+        algo_name = str(config['algorithm']).split('#')[-1]
+        if 'DL' in algo_name or 'Deep' in algo_name:
+            base_proc_time = 30  # 深度学习需要更多时间
+        elif 'ML' in algo_name:
+            base_proc_time = 10
+        else:
+            base_proc_time = 5
         
-        # 应用基于场景的网络质量
-        scenario_type = self.config.scenario_type
-        network_quality_factors = self.config.network_quality_factors
-        
-        # 确定技术类型
-        tech = None
-        for t in ['Fiber', '5G', '4G', 'LoRaWAN']:
-            if t in comm_type:
-                tech = t
-                break
-        
-        scenario_factor = 1.0
-        if tech and scenario_type in network_quality_factors:
-            scenario_factor = network_quality_factors[scenario_type].get(tech, 1.0)
-        
-        effective_bandwidth = comm_data['bandwidth'] * scenario_factor
-        network_latency = comm_data['latency'] / scenario_factor
-        
-        # 通信时间
-        comm_time = (data_gb * 1000) / effective_bandwidth if effective_bandwidth > 0 else 100
-        
-        # 基于算法和部署的处理时间
-        algo_fps = self._query_property(config['algorithm'], 'hasFPS', 10)
-        base_proc_time = 1 / algo_fps if algo_fps > 0 else 0.1
-        
-        # 部署影响（详细因子）
-        deploy_type = str(config['deployment']).split('#')[-1]
+        # 部署位置的影响
         deploy_factors = {
-            'Deployment_Edge_Computing': {'factor': 1.5, 'overhead': 0.02},
-            'Deployment_Cloud_Computing': {'factor': 1.0, 'overhead': 0.05},
-            'Deployment_Hybrid_Edge_Cloud': {'factor': 1.2, 'overhead': 0.03},
-            'Deployment_OnPremise_Server': {'factor': 1.3, 'overhead': 0.01}
+            'Deployment_Edge_Computing': 2.0,  # 边缘计算资源有限
+            'Deployment_Cloud_Computing': 1.0,
+            'Deployment_Hybrid_Edge_Cloud': 1.5,
+            'Deployment_OnPremise_Server': 1.8
         }
         
-        deploy_data = deploy_factors.get(deploy_type, {'factor': 1.0, 'overhead': 0.05})
-        proc_time = base_proc_time * deploy_data['factor'] + deploy_data['overhead']
-        
-        # 队列等待时间（基于系统负载）
-        queue_time = np.random.exponential(0.5)  # 平均0.5秒队列时间
+        deploy_type = str(config['deployment']).split('#')[-1]
+        deploy_factor = deploy_factors.get(deploy_type, 1.0)
+        proc_time = base_proc_time * deploy_factor
         
         # 总延迟
-        total_latency = acq_time + network_latency + comm_time + proc_time + queue_time
+        total_latency = acq_time + comm_time + proc_time
         
         return total_latency
     

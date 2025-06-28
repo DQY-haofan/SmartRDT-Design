@@ -3,14 +3,14 @@
   "n_generations": 200,
   "n_partitions": 4,
   
-  "min_recall_threshold": 0.4,
-  "max_latency_seconds": 600.0,
+  "min_recall_threshold": 0.7,
+  "max_latency_seconds": 120.0,
   "max_disruption_hours": 600.0,
-  "budget_cap_usd": 20000000,
-  "min_mtbf_hours": 1000,
-  "max_carbon_emissions_kgCO2e_year": 500000,
+  "budget_cap_usd": 5000000,
+  "min_mtbf_hours": 8760,
+  "max_carbon_emissions_kgCO2e_year": 100000,
   
-  "n_random_samples": 2000,
+  "n_random_samples": 500,
   "grid_resolution": 10,
   "weight_combinations": 100
 }
