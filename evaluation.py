@@ -501,31 +501,92 @@ class EnhancedFitnessEvaluatorV3:
         return 1 - np.clip(base_recall, 0.01, 0.99)  # 返回1-recall用于最小化
     
     def _calculate_latency_enhanced(self, config: Dict) -> float:
-        """增强的延迟计算"""
-        # 数据采集时间
-        data_rate = config['data_rate']
-        acq_time = 1 / data_rate if data_rate > 0 else 1.0
+        """改进的延迟计算 - 更真实的版本"""
+        sensor_name = str(config['sensor']).split('#')[-1]
         
-        # 基于传感器和LOD的数据量
+        # 1. 数据采集时间（基于传感器类型和实际物理约束）
+        if 'MMS' in sensor_name:
+            # 移动测绘系统需要实际扫描道路
+            coverage_speed = self._query_property(config['sensor'], 'hasOperatingSpeedKmh', 80)
+            scan_segment_km = 10  # 假设每次处理10km路段
+            if coverage_speed > 0:
+                acq_time = (scan_segment_km / coverage_speed) * 3600  # 转换为秒
+            else:
+                acq_time = 450  # 默认7.5分钟
+        
+        elif 'UAV' in sensor_name:
+            # 无人机有飞行时间限制
+            coverage_speed = self._query_property(config['sensor'], 'hasCoverageEfficiencyKmPerDay', 2.7)
+            if coverage_speed > 0:
+                # 假设处理1km路段
+                acq_time = (1.0 / (coverage_speed / 24)) * 3600  # 转换为秒
+            else:
+                acq_time = 1200  # 默认20分钟
+        
+        elif 'TLS' in sensor_name or 'Handheld' in sensor_name:
+            # 静态扫描仪需要设置和扫描时间
+            acq_time = 300  # 5分钟每个位置
+        
+        elif 'IoT' in sensor_name or 'FOS' in sensor_name:
+            # 固定传感器持续监测，但需要积累数据
+            data_rate = config['data_rate']
+            samples_needed = 1000  # 需要1000个样本进行可靠分析
+            acq_time = samples_needed / data_rate if data_rate > 0 else 100
+        
+        else:
+            # 其他传感器
+            data_rate = config['data_rate']
+            acq_time = 60  # 至少1分钟的数据收集
+        
+        # 2. 数据量估算（基于传感器和LOD）
         base_data_gb = self._query_property(config['sensor'], 'hasDataVolumeGBPerKm', 1.0)
         
-        lod_multipliers = {'Micro': 2.0, 'Meso': 1.0, 'Macro': 0.5}
+        # LOD对数据量的影响
+        lod_multipliers = {
+            'Micro': 3.0,   # 微观级别需要更多数据
+            'Meso': 1.0,    # 中等
+            'Macro': 0.3    # 宏观级别数据量较少
+        }
         data_gb = base_data_gb * lod_multipliers.get(config['geo_lod'], 1.0)
         
-        # 通信延迟（真实带宽）
+        # 3. 通信延迟（使用更真实的带宽估计）
         comm_type = str(config['communication']).split('#')[-1]
-        comm_specs = {
-            'Communication_5G_Network': {'bandwidth': 1000, 'latency': 0.01},
-            'Communication_LoRaWAN': {'bandwidth': 0.05, 'latency': 1.0},
-            'Communication_Fiber_Optic': {'bandwidth': 10000, 'latency': 0.002},
-            'Communication_4G_LTE': {'bandwidth': 100, 'latency': 0.05}
+        
+        # 更真实的带宽和延迟设置
+        realistic_comm_specs = {
+            'Communication_5G_Network': {
+                'bandwidth': 100,    # 100 Mbps (实际5G平均速度)
+                'latency': 0.03,     # 30ms
+                'reliability': 0.95  # 95%可靠性
+            },
+            'Communication_LoRaWAN': {
+                'bandwidth': 0.05,   # 50 kbps
+                'latency': 2.0,      # 2秒
+                'reliability': 0.90
+            },
+            'Communication_Fiber_Optic': {
+                'bandwidth': 500,    # 500 Mbps (实际部署)
+                'latency': 0.01,     # 10ms
+                'reliability': 0.99
+            },
+            'Communication_4G_LTE': {
+                'bandwidth': 25,     # 25 Mbps (实际4G平均)
+                'latency': 0.08,     # 80ms
+                'reliability': 0.92
+            }
         }
         
-        comm_data = comm_specs.get(comm_type, {'bandwidth': 100, 'latency': 0.05})
+        comm_data = realistic_comm_specs.get(comm_type, {
+            'bandwidth': 25, 'latency': 0.1, 'reliability': 0.9
+        })
         
-        # 应用基于场景的网络质量
+        # 场景因素影响
         scenario_type = self.config.scenario_type
-        network_quality_factors = self.config.network_quality_factors
+        scenario_impacts = {
+            'urban': {'5G': 1.0, '4G': 0.8, 'Fiber': 1.0, 'LoRaWAN': 0.7},
+            'rural': {'5G': 0.5, '4G': 0.6, 'Fiber': 0.8, 'LoRaWAN': 1.0},
+            'mixed': {'5G': 0.7, '4G': 0.7, 'Fiber': 0.9, 'LoRaWAN': 0.9}
+        }
         
         # 确定技术类型
         tech = None
@@ -535,39 +596,113 @@ class EnhancedFitnessEvaluatorV3:
                 break
         
         scenario_factor = 1.0
-        if tech and scenario_type in network_quality_factors:
-            scenario_factor = network_quality_factors[scenario_type].get(tech, 1.0)
+        if tech and scenario_type in scenario_impacts:
+            scenario_factor = scenario_impacts[scenario_type].get(tech, 1.0)
         
-        effective_bandwidth = comm_data['bandwidth'] * scenario_factor
+        # 实际带宽和延迟
+        effective_bandwidth = comm_data['bandwidth'] * scenario_factor * comm_data['reliability']
         network_latency = comm_data['latency'] / scenario_factor
         
-        # 通信时间
-        comm_time = (data_gb * 1000) / effective_bandwidth if effective_bandwidth > 0 else 100
+        # 通信时间（考虑协议开销）
+        protocol_overhead = 1.2  # 20%的协议开销
+        comm_time = (data_gb * 1000 * 8 * protocol_overhead) / effective_bandwidth if effective_bandwidth > 0 else 1000
         
-        # 基于算法和部署的处理时间
-        algo_fps = self._query_property(config['algorithm'], 'hasFPS', 10)
-        base_proc_time = 1 / algo_fps if algo_fps > 0 else 0.1
+        # 添加重传时间（基于可靠性）
+        retransmission_factor = 1 / comm_data['reliability']
+        comm_time *= retransmission_factor
         
-        # 部署影响（详细因子）
-        deploy_type = str(config['deployment']).split('#')[-1]
-        deploy_factors = {
-            'Deployment_Edge_Computing': {'factor': 1.5, 'overhead': 0.02},
-            'Deployment_Cloud_Computing': {'factor': 1.0, 'overhead': 0.05},
-            'Deployment_Hybrid_Edge_Cloud': {'factor': 1.2, 'overhead': 0.03},
-            'Deployment_OnPremise_Server': {'factor': 1.3, 'overhead': 0.01}
+        # 4. 处理时间（基于算法复杂度和数据量）
+        algo_name = str(config['algorithm']).split('#')[-1]
+        
+        # 算法处理时间（每GB数据）
+        algo_processing_times = {
+            'DL': 60,        # 深度学习：60秒/GB
+            'ML': 20,        # 机器学习：20秒/GB  
+            'Traditional': 5, # 传统算法：5秒/GB
+            'PC': 30         # 点云处理：30秒/GB
         }
         
-        deploy_data = deploy_factors.get(deploy_type, {'factor': 1.0, 'overhead': 0.05})
-        proc_time = base_proc_time * deploy_data['factor'] + deploy_data['overhead']
+        # 确定算法类型
+        algo_type = 'Traditional'
+        for key in algo_processing_times.keys():
+            if key in algo_name:
+                algo_type = key
+                break
         
-        # 队列等待时间（基于系统负载）
-        queue_time = np.random.exponential(0.5)  # 平均0.5秒队列时间
+        base_proc_time_per_gb = algo_processing_times[algo_type]
         
-        # 总延迟
-        total_latency = acq_time + network_latency + comm_time + proc_time + queue_time
+        # LOD对处理时间的影响
+        lod_processing_factors = {
+            'Micro': 2.0,   # 微观处理更耗时
+            'Meso': 1.0,
+            'Macro': 0.5    # 宏观处理较快
+        }
+        lod_factor = lod_processing_factors.get(config['geo_lod'], 1.0)
+        
+        # 部署位置的影响
+        deploy_type = str(config['deployment']).split('#')[-1]
+        deploy_performance = {
+            'Deployment_Edge_Computing': {
+                'compute_factor': 3.0,    # 边缘计算资源有限
+                'startup_overhead': 5.0   # 启动开销
+            },
+            'Deployment_Cloud_Computing': {
+                'compute_factor': 1.0,    # 云端资源充足
+                'startup_overhead': 2.0
+            },
+            'Deployment_Hybrid_Edge_Cloud': {
+                'compute_factor': 1.8,
+                'startup_overhead': 3.0
+            },
+            'Deployment_OnPremise_Server': {
+                'compute_factor': 2.0,
+                'startup_overhead': 1.0
+            }
+        }
+        
+        deploy_data = deploy_performance.get(deploy_type, {
+            'compute_factor': 2.0, 'startup_overhead': 3.0
+        })
+        
+        # 总处理时间
+        proc_time = (base_proc_time_per_gb * data_gb * lod_factor * 
+                    deploy_data['compute_factor'] + deploy_data['startup_overhead'])
+        
+        # 5. 排队和调度延迟
+        # 基于系统负载的排队时间
+        if deploy_type == 'Deployment_Cloud_Computing':
+            # 云端可能有更多排队
+            queue_time = np.random.exponential(10)  # 平均10秒
+        else:
+            queue_time = np.random.exponential(3)   # 平均3秒
+        
+        # 6. 结果传输时间
+        # 处理结果通常比原始数据小
+        result_size_gb = data_gb * 0.1  # 假设结果是原数据的10%
+        result_transmission_time = (result_size_gb * 1000 * 8) / effective_bandwidth if effective_bandwidth > 0 else 10
+        
+        # 7. 人工验证时间（如果需要）
+        if 'DL' in algo_name or 'ML' in algo_name:
+            # AI算法可能需要人工验证
+            verification_time = 30  # 30秒快速检查
+        else:
+            verification_time = 0
+        
+        # 总延迟计算
+        total_latency = (acq_time + network_latency + comm_time + 
+                        proc_time + queue_time + result_transmission_time + 
+                        verification_time)
+        
+        # 确保最小延迟（物理限制）
+        min_latency = 30.0  # 至少30秒
+        total_latency = max(total_latency, min_latency)
+        
+        # 添加一些随机性（±10%）
+        noise_factor = 1 + (np.random.random() - 0.5) * 0.2
+        total_latency *= noise_factor
         
         return total_latency
-    
+
     def _calculate_traffic_disruption_enhanced(self, config: Dict) -> float:
         """增强的交通干扰计算"""
         # 每次检查的基础干扰
