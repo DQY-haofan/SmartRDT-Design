@@ -492,7 +492,7 @@ class ExpertHeuristicBaseline(BaselineMethod):
         ])
     
     def _balanced_config(self) -> np.ndarray:
-            """平衡配置 - 改进版"""
+        """基于实际可行解的平衡配置"""
         return np.array([
             0.85,   # 车载传感器（基于结果）
             0.3,    # 较低数据率
