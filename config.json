@@ -1,6 +1,6 @@
 {
-  "population_size": 500,
-  "n_generations": 300,
+  "population_size": 300,
+  "n_generations": 200,
   "n_partitions": 4,
   
   "min_recall_threshold": 0.4,
