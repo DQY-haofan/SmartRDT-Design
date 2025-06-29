@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 # IEEE Double-column publication settings
 IEEE_SETTINGS = {
     'single_column_width': 7,   # inches (88.9mm)
-    'double_column_width': 10,  # inches (181.8mm)
+    'double_column_width': 12,  # inches (181.8mm)
     'font_size': 10,              # 改回标准10pt
     'label_size': 11,             # 轴标签
     'title_size': 12,             # 标题
@@ -2024,40 +2024,40 @@ class Visualizer:
         ax.grid(True, axis='y', alpha=0.3)
         ax.set_ylim(0, 1.1)
 
-        def _get_extreme_solutions(self, df):
-            """Get normalized quality scores for extreme solutions"""
-            scores = {}
-            
-            if len(df) == 0:
-                return scores
-            
-            # Min Cost solution
-            if 'f1_total_cost_USD' in df.columns:
-                min_cost_idx = df['f1_total_cost_USD'].idxmin()
-                min_cost_sol = df.loc[min_cost_idx]
-                # Quality = weighted sum of normalized objectives
-                cost_score = self._calculate_solution_quality(min_cost_sol, df)
-                scores['Min Cost'] = cost_score
-            
-            # Max Recall solution
-            if 'detection_recall' in df.columns:
-                max_recall_idx = df['detection_recall'].idxmax()
-                max_recall_sol = df.loc[max_recall_idx]
-                scores['Max Recall'] = self._calculate_solution_quality(max_recall_sol, df)
-            
-            # Min Carbon solution
-            if 'f5_carbon_emissions_kgCO2e_year' in df.columns:
-                min_carbon_idx = df['f5_carbon_emissions_kgCO2e_year'].idxmin()
-                min_carbon_sol = df.loc[min_carbon_idx]
-                scores['Min Carbon'] = self._calculate_solution_quality(min_carbon_sol, df)
-            
-            # Max MTBF solution
-            if 'system_MTBF_hours' in df.columns:
-                max_mtbf_idx = df['system_MTBF_hours'].idxmax()
-                max_mtbf_sol = df.loc[max_mtbf_idx]
-                scores['Max MTBF'] = self._calculate_solution_quality(max_mtbf_sol, df)
-            
+    def _get_extreme_solutions(self, df):
+        """Get normalized quality scores for extreme solutions"""
+        scores = {}
+        
+        if len(df) == 0:
             return scores
+        
+        # Min Cost solution
+        if 'f1_total_cost_USD' in df.columns:
+            min_cost_idx = df['f1_total_cost_USD'].idxmin()
+            min_cost_sol = df.loc[min_cost_idx]
+            # Quality = weighted sum of normalized objectives
+            cost_score = self._calculate_solution_quality(min_cost_sol, df)
+            scores['Min Cost'] = cost_score
+        
+        # Max Recall solution
+        if 'detection_recall' in df.columns:
+            max_recall_idx = df['detection_recall'].idxmax()
+            max_recall_sol = df.loc[max_recall_idx]
+            scores['Max Recall'] = self._calculate_solution_quality(max_recall_sol, df)
+        
+        # Min Carbon solution
+        if 'f5_carbon_emissions_kgCO2e_year' in df.columns:
+            min_carbon_idx = df['f5_carbon_emissions_kgCO2e_year'].idxmin()
+            min_carbon_sol = df.loc[min_carbon_idx]
+            scores['Min Carbon'] = self._calculate_solution_quality(min_carbon_sol, df)
+        
+        # Max MTBF solution
+        if 'system_MTBF_hours' in df.columns:
+            max_mtbf_idx = df['system_MTBF_hours'].idxmax()
+            max_mtbf_sol = df.loc[max_mtbf_idx]
+            scores['Max MTBF'] = self._calculate_solution_quality(max_mtbf_sol, df)
+        
+        return scores
 
     def _calculate_solution_quality(self, solution, df):
         """Calculate overall quality score for a solution"""
