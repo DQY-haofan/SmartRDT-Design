@@ -1,5 +1,5 @@
 {
-  "population_size": 1000,
+  "population_size": 2000,
   "n_generations": 100,
   "n_partitions": 6,
   
