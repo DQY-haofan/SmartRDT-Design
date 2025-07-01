@@ -684,6 +684,111 @@ class Visualizer:
         plt.tight_layout()
         self._save_figure(fig, 'decision_matrix')
     
+    def create_enhanced_baseline_comparison(self, pareto_df, baseline_results):
+        """Create enhanced baseline comparison figures (compatibility method)"""
+        logger.info("Creating enhanced baseline comparison figures...")
+        
+        # This method provides compatibility with the original code
+        # It generates additional comparison visualizations
+        
+        # 1. Method performance comparison
+        self._create_method_performance_comparison(pareto_df, baseline_results)
+        
+        # 2. Solution quality scatter
+        self._create_solution_quality_scatter(pareto_df, baseline_results)
+    
+    def _create_method_performance_comparison(self, pareto_df, baseline_results):
+        """Compare performance metrics across methods"""
+        fig, ax = plt.subplots(figsize=(IEEE_SETTINGS['single_column_width'], 4))
+        
+        methods = ['NSGA-III']
+        metrics = {
+            'NSGA-III': {
+                'Solutions': len(pareto_df),
+                'Min Cost': pareto_df['f1_total_cost_USD'].min() / 1000,
+                'Max Recall': pareto_df['detection_recall'].max(),
+                'Min Carbon': pareto_df['f5_carbon_emissions_kgCO2e_year'].min() / 1000
+            }
+        }
+        
+        # Add baseline metrics
+        for method, df in baseline_results.items():
+            if df is not None and len(df) > 0:
+                methods.append(method.title())
+                if 'is_feasible' in df.columns:
+                    feasible = df[df['is_feasible']]
+                    if len(feasible) > 0:
+                        metrics[method.title()] = {
+                            'Solutions': len(feasible),
+                            'Min Cost': feasible['f1_total_cost_USD'].min() / 1000,
+                            'Max Recall': feasible['detection_recall'].max(),
+                            'Min Carbon': feasible['f5_carbon_emissions_kgCO2e_year'].min() / 1000
+                        }
+                    else:
+                        metrics[method.title()] = {
+                            'Solutions': 0,
+                            'Min Cost': np.nan,
+                            'Max Recall': np.nan,
+                            'Min Carbon': np.nan
+                        }
+        
+        # Create grouped bar chart
+        metric_names = ['Solutions', 'Min Cost (k$)', 'Max Recall', 'Min Carbon (t)']
+        x = np.arange(len(metric_names))
+        width = 0.15
+        
+        for i, method in enumerate(methods):
+            if method in metrics:
+                values = [
+                    metrics[method]['Solutions'] / 10,  # Scale for visibility
+                    metrics[method]['Min Cost'] / 100 if not np.isnan(metrics[method]['Min Cost']) else 0,
+                    metrics[method]['Max Recall'],
+                    metrics[method]['Min Carbon'] / 10 if not np.isnan(metrics[method]['Min Carbon']) else 0
+                ]
+                offset = (i - len(methods)/2 + 0.5) * width
+                ax.bar(x + offset, values, width, label=method, alpha=0.8)
+        
+        ax.set_xlabel('Performance Metrics', fontsize=IEEE_SETTINGS['label_size'])
+        ax.set_ylabel('Normalized Values', fontsize=IEEE_SETTINGS['label_size'])
+        ax.set_title('Method Performance Comparison', fontsize=IEEE_SETTINGS['title_size'])
+        ax.set_xticks(x)
+        ax.set_xticklabels(metric_names, rotation=45, ha='right')
+        ax.legend(fontsize=IEEE_SETTINGS['legend_size'])
+        ax.grid(True, axis='y', alpha=0.3)
+        
+        self._save_figure(fig, 'enhanced_method_comparison')
+    
+    def _create_solution_quality_scatter(self, pareto_df, baseline_results):
+        """Create solution quality scatter plot"""
+        fig, ax = plt.subplots(figsize=(IEEE_SETTINGS['single_column_width'], 4))
+        
+        # Plot Pareto solutions
+        ax.scatter(pareto_df['f1_total_cost_USD']/1000, 
+                  pareto_df['f5_carbon_emissions_kgCO2e_year']/1000,
+                  c=COLORS['primary'], s=100, alpha=0.8, 
+                  label='NSGA-III', marker='o')
+        
+        # Plot baseline solutions
+        colors = [COLORS['secondary'], COLORS['tertiary'], COLORS['quaternary'], COLORS['quinary']]
+        markers = ['s', '^', 'D', 'v']
+        
+        for i, (method, df) in enumerate(baseline_results.items()):
+            if df is not None and len(df) > 0 and 'is_feasible' in df.columns:
+                feasible = df[df['is_feasible']]
+                if len(feasible) > 0:
+                    ax.scatter(feasible['f1_total_cost_USD']/1000,
+                             feasible['f5_carbon_emissions_kgCO2e_year']/1000,
+                             c=colors[i % len(colors)], s=60, alpha=0.6,
+                             label=method.title(), marker=markers[i % len(markers)])
+        
+        ax.set_xlabel('Total Cost (k$)', fontsize=IEEE_SETTINGS['label_size'])
+        ax.set_ylabel('Carbon Emissions (tCO₂/y)', fontsize=IEEE_SETTINGS['label_size'])
+        ax.set_title('Cost vs Sustainability Trade-off', fontsize=IEEE_SETTINGS['title_size'])
+        ax.legend(fontsize=IEEE_SETTINGS['legend_size'])
+        ax.grid(True, alpha=0.3)
+        
+        self._save_figure(fig, 'enhanced_quality_scatter')
+    
     # Helper methods
     def _find_pareto_front_2d(self, x: np.ndarray, y: np.ndarray,
                              minimize_x: bool = True,
@@ -750,6 +855,14 @@ def create_visualizations(config, pareto_results_path: str,
     logger.info("Visualization generation complete!")
 
 
+# Enhanced entry point for compatibility
+def create_enhanced_visualizations(config, pareto_results_path: str, 
+                                  baseline_results_dir: Optional[str] = None,
+                                  optimization_history: Optional[Dict] = None):
+    """Alias for create_visualizations to maintain compatibility"""
+    return create_visualizations(config, pareto_results_path, baseline_results_dir, optimization_history)
+
+
 if __name__ == "__main__":
     # Example usage
     import argparse
@@ -760,8 +873,10 @@ if __name__ == "__main__":
         output_dir: str = './results'
     
     parser = argparse.ArgumentParser(description='Generate visualizations for RMTwin optimization')
-    parser.add_argument('--pareto', required=True, help='Path to Pareto results CSV')
-    parser.add_argument('--baselines', help='Directory containing baseline results')
+    parser.add_argument('--pareto', default='./results/pareto_solutions_6obj_fixed.csv', 
+                       help='Path to Pareto results CSV')
+    parser.add_argument('--baselines', default='./results', 
+                       help='Directory containing baseline results')
     parser.add_argument('--output', default='./results', help='Output directory')
     
     args = parser.parse_args()
