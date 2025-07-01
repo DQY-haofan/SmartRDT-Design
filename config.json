@@ -1,7 +1,7 @@
 {
   "population_size": 1000,
   "n_generations": 100,
-  "n_partitions": 4,
+  "n_partitions": 6,
   
   "min_recall_threshold": 0.60,
   "max_latency_seconds": 400.0,
