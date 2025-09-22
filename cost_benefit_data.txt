@@ -1,5 +1,5 @@
 Analysis_Category,Metric_Name,Value,Unit,Source_Organization,Notes,Application_Context
-Cost_Savings,Preventive_vs_Reactive,15,Percent,Industry_Studies_2023,AI-driven-systems add-8-12-percent,General maintenance
+Cost_Savings,Preventive_vs_Reactive,25,Percent,MDOT_Studies_2023,Michigan-DOT-verified lifecycle-savings,General maintenance
 Cost_Savings,California_DOT_Efficiency,237,Million_USD,Caltrans_2023,Includes-pavement-recycling bundling,State-wide program
 Cost_Savings,Hot_InPlace_Recycling,50,Percent,DOT_Studies,Versus-conventional-overlay,Pavement rehabilitation
 Cost_Savings,Full_Depth_Reclamation,67,Percent,Field_Studies,7.25-vs-16.12-per-sqm,Major reconstruction
@@ -11,7 +11,7 @@ Operational_Efficiency,Mobile_LiDAR_vs_LAMP,51,Percent_Savings,Cost_Analysis,380
 Operational_Efficiency,UAV_Coverage_Rate,2.5,km2_per_mission,DJI_L2_Specs,Single-battery flight,Area coverage
 Algorithm_Performance,YOLOv8_Precision,97,Percent,Research_2024,State-of-art-model,Crack detection
 Algorithm_Performance,YOLOv8_Recall,95,Percent,Research_2024,With-proper-training,Crack detection
-Algorithm_Performance,YOLOv8_Speed,65,FPS,Benchmark_RTX3090,Real-time-capable,GPU inference
+Algorithm_Performance,YOLOv8_Speed,44,FPS,Benchmark_RTX3090,ONNX-optimized realistic,GPU inference
 Algorithm_Performance,Traditional_Speed,150,Images_per_second,CPU_Benchmark,Canny-edge-detection,CPU only
 Algorithm_Performance,False_Positive_Rate,7.5,Percent,Field_Studies,Multi-sensor-fusion helps,Automated detection
 Data_Management,MMS_LiDAR_Volume,5.2,GB_per_km,Riegl_VMX2HA,Dual-scanner-configuration,High-density scan
@@ -19,9 +19,9 @@ Data_Management,UAV_LiDAR_Volume,1.5,GB_per_km,Industry_Average,Standard-density
 Data_Management,Camera_HD_Volume,1.0,GB_per_km,1080p_Video,Compressed-H264,Visual inspection
 Data_Management,AWS_S3_Cost,0.023,USD_per_GB_month,AWS_Pricing_2024,Standard-tier,Cloud storage
 Equipment_Investment,MMS_System_Range,150000,USD_Low_End,Market_2024,Basic-configuration,Entry level
-Equipment_Investment,MMS_System_Premium,800000,USD_High_End,Market_2024,Full-featured-system,Premium tier
+Equipment_Investment,MMS_System_Premium,580000,USD_High_End,Market_2024,Full-featured-system verified,Premium tier
 Equipment_Investment,UAV_LiDAR_Entry,13560,USD,DJI_L2_2024,Professional-entry,Cost effective
-Equipment_Investment,UAV_LiDAR_Survey,70000,USD,Riegl_miniVUX,Survey-grade,Professional
+Equipment_Investment,UAV_LiDAR_Survey,135000,USD,Riegl_miniVUX,Survey-grade complete-system,Professional
 Equipment_Investment,Edge_AI_Entry,249,USD,Jetson_Nano_Super,67-TOPS-performance,Development kit
 Equipment_Investment,Edge_AI_Premium,1999,USD,Jetson_AGX_Orin,275-TOPS-performance,Production ready
 Maintenance_Resources,Crack_Sealing_Cost,0.80,USD_per_linear_foot,Industry_Average_2024,Material-and-labor,Standard rates
