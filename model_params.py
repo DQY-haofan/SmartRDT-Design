@@ -355,12 +355,21 @@ def get_comm_type(comm_str: str) -> str:
         comm_str: Communication system string (e.g., 'Communication_5G_SmallCell')
         
     Returns:
-        Communication type key (e.g., '5G')
+        Communication type key matching MODEL_PARAMS keys (e.g., 'Fiber', '5G')
     """
-    comm_str = str(comm_str).upper()
-    for key in ['FIBER', '5G', '4G', 'LORAWAN', 'V2X']:
-        if key in comm_str:
-            return key.replace('LORAWAN', 'LoRaWAN')
+    comm_str_upper = str(comm_str).upper()
+    # Mapping from detection pattern to correct parameter key
+    key_mapping = {
+        'FIBER': 'Fiber',
+        '5G': '5G',
+        '4G': '4G',
+        'LORAWAN': 'LoRaWAN',
+        'LORA': 'LoRaWAN',
+        'V2X': 'V2X'
+    }
+    for pattern, key in key_mapping.items():
+        if pattern in comm_str_upper:
+            return key
     return 'default'
 
 
@@ -416,13 +425,24 @@ def get_sensor_type(sensor_str: str) -> str:
         sensor_str: Sensor system string
         
     Returns:
-        Sensor type key (e.g., 'MMS', 'UAV')
+        Sensor type key matching MODEL_PARAMS keys (e.g., 'MMS', 'Vehicle', 'IoT')
     """
-    sensor_str = str(sensor_str).upper()
-    for key in ['MMS', 'UAV', 'TLS', 'HANDHELD', 'VEHICLE', 'IOT', 'FOS', 'FIBER', 'CAMERA']:
-        if key in sensor_str:
-            if key == 'FIBER':
-                return 'FOS'
+    sensor_str_upper = str(sensor_str).upper()
+    # Mapping from detection pattern to correct parameter key
+    # Keys must match MODEL_PARAMS['depreciation_rate'], ['base_disruption_hours'], etc.
+    key_mapping = {
+        'MMS': 'MMS',
+        'UAV': 'UAV',
+        'TLS': 'TLS',
+        'HANDHELD': 'Handheld',
+        'VEHICLE': 'Vehicle',
+        'IOT': 'IoT',
+        'FOS': 'FOS',
+        'FIBER': 'FOS',       # Fiber optic sensing maps to FOS
+        'CAMERA': 'Camera'
+    }
+    for pattern, key in key_mapping.items():
+        if pattern in sensor_str_upper:
             return key
     return 'default'
 

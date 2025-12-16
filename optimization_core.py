@@ -116,11 +116,17 @@ class RMTwinOptimizer:
             logger.info(f"Using NSGA-II, pop_size={self.config.population_size}")
         else:
             # Use NSGA-III for many objectives
+            # Das-Dennis formula: ref_points = C(n_obj + p - 1, p)
+            # where p = n_partitions
             if self.config.n_objectives == 4:
+                # C(4+6-1, 6) = C(9,6) = 84 reference points
                 ref_dirs = get_reference_directions("das-dennis", 4, n_partitions=6)
             elif self.config.n_objectives == 5:
+                # C(5+4-1, 4) = C(8,4) = 70 reference points
                 ref_dirs = get_reference_directions("das-dennis", 5, n_partitions=4)
             else:  # 6 objectives
+                # C(6+3-1, 3) = C(8,3) = 56 reference points
+                # Or use n_partitions=4: C(9,4) = 126 reference points
                 ref_dirs = get_reference_directions("das-dennis", 6, n_partitions=3)
             
             pop_size = max(self.config.population_size, len(ref_dirs) + 50)

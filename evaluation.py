@@ -537,9 +537,8 @@ class EnhancedFitnessEvaluatorV3:
         # Apply practical bounds
         recall = np.clip(recall, rm['min_recall'], rm['max_recall'])
         
-        # Small noise for diversity
-        recall += np.random.normal(0, 0.005)
-        recall = np.clip(recall, 0.01, 0.99)
+        # NOTE: No random noise added - deterministic for reproducible optimization
+        # If uncertainty modeling is needed, use Monte-Carlo wrapper on final solutions
         
         # Return 1-recall for minimization
         return 1.0 - recall
@@ -635,12 +634,12 @@ class EnhancedFitnessEvaluatorV3:
         
         proc_time = compute_time_per_gb * sent_data_gb * compute_factor * lod_compute_mult
         
-        # Startup overhead
+        # Startup overhead (deterministic - use mean values)
         overhead = MODEL_PARAMS['latency_overhead']
         if deploy_type == 'Cloud':
-            queue_time = np.random.exponential(overhead['queue_cloud'])
+            queue_time = overhead['queue_cloud']  # Use mean instead of random
         else:
-            queue_time = np.random.exponential(overhead['queue_edge'])
+            queue_time = overhead['queue_edge']   # Use mean instead of random
         
         startup_time = overhead['startup']
         result_time = overhead['result_processing']
@@ -651,8 +650,7 @@ class EnhancedFitnessEvaluatorV3:
         # Bounds - more reasonable range
         total_latency = np.clip(total_latency, 5.0, 400.0)
         
-        # Small noise
-        total_latency *= (1 + (np.random.random() - 0.5) * 0.1)
+        # NOTE: No random noise - deterministic for reproducible optimization
         
         assert validate_non_negative(total_latency, "latency"), f"Invalid latency: {total_latency}"
         
@@ -1016,7 +1014,7 @@ class EnhancedFitnessEvaluatorV3:
             'compute_time_per_inspection_s': compute_time_s
         }
         
-        # Recall model
+        # Recall model - MUST match _calculate_detection_performance exactly
         rm = MODEL_PARAMS['recall_model']
         base_algo_recall = self._query_property(config['algorithm'], 'hasRecall', 0.7)
         sensor_precision = self._query_property(config['sensor'], 'hasPrecision', 0.7)
@@ -1024,8 +1022,27 @@ class EnhancedFitnessEvaluatorV3:
         tau = config['detection_threshold']
         tau0 = rm['tau0']
         
-        z = (rm['a0'] + rm['a1'] * base_algo_recall + rm['a2'] * sensor_precision +
-             lod_bonus - rm['a3'] * (tau - tau0))
+        # Data rate bonus (same as in _calculate_detection_performance)
+        data_rate_bonus = rm['data_rate_bonus_factor'] * max(0, config['data_rate'] - rm['base_data_rate'])
+        
+        # Hardware penalty (same as in _calculate_detection_performance)
+        algo_type = get_algo_type(str(config['algorithm']))
+        deploy_type = trace['types']['deployment']
+        hw_penalty = 0.0
+        if algo_type in ['DL', 'ML']:
+            if deploy_type == 'Edge':
+                hw_penalty = 0.5  # Edge may not have good GPU
+            elif deploy_type not in ['Cloud', 'Hybrid']:
+                hw_penalty = 0.8
+        
+        # z calculation - MUST match _calculate_detection_performance exactly
+        z = (rm['a0'] + 
+             rm['a1'] * base_algo_recall +
+             rm['a2'] * sensor_precision +
+             lod_bonus +
+             data_rate_bonus -
+             rm['a3'] * (tau - tau0) -
+             hw_penalty)
         recall = sigmoid(z)
         recall = np.clip(recall, rm['min_recall'], rm['max_recall'])
         
@@ -1033,6 +1050,8 @@ class EnhancedFitnessEvaluatorV3:
             'base_algo_recall': base_algo_recall,
             'sensor_precision': sensor_precision,
             'lod_bonus': lod_bonus,
+            'data_rate_bonus': data_rate_bonus,
+            'hw_penalty': hw_penalty,
             'tau': tau,
             'tau0': tau0,
             'sigmoid_input_z': z,

@@ -8,6 +8,7 @@ Key improvements:
 1. Expert baseline generates multiple candidates and relaxes if needed
 2. Better reference configurations based on domain knowledge
 3. Improved feasibility-seeking behavior
+4. Reproducible random seeds for all methods
 
 Author: RMTwin Research Team
 Version: 2.0 (Step 2-Lite)
@@ -22,15 +23,24 @@ from abc import ABC, abstractmethod
 
 logger = logging.getLogger(__name__)
 
+# Default random seed for reproducibility
+DEFAULT_SEED = 42
+
+
+def set_baseline_seed(seed: int = DEFAULT_SEED):
+    """Set random seed for reproducibility in baseline methods."""
+    np.random.seed(seed)
+
 
 class BaselineMethod(ABC):
     """Abstract base class for baseline methods"""
     
-    def __init__(self, evaluator, config):
+    def __init__(self, evaluator, config, seed: int = DEFAULT_SEED):
         self.evaluator = evaluator
         self.config = config
         self.results = []
         self.execution_time = 0
+        self.seed = seed
         
     @abstractmethod
     def optimize(self) -> pd.DataFrame:
@@ -95,8 +105,11 @@ class RandomSearchBaseline(BaselineMethod):
     
     def optimize(self) -> pd.DataFrame:
         """Generate random solutions with smart initialization"""
+        # Set seed for reproducibility
+        np.random.seed(self.seed)
+        
         n_samples = self.config.n_random_samples
-        logger.info(f"Running Random Search with {n_samples} samples...")
+        logger.info(f"Running Random Search with {n_samples} samples (seed={self.seed})...")
         
         start_time = time.time()
         
@@ -252,7 +265,10 @@ class GridSearchBaseline(BaselineMethod):
     
     def optimize(self) -> pd.DataFrame:
         """Run grid search on key parameters"""
-        logger.info("Running Grid Search baseline...")
+        # Set seed for reproducibility (for smart variations)
+        np.random.seed(self.seed + 1)  # Different seed from random search
+        
+        logger.info(f"Running Grid Search baseline (seed={self.seed + 1})...")
         
         start_time = time.time()
         
@@ -350,8 +366,11 @@ class WeightedSumBaseline(BaselineMethod):
     
     def optimize(self) -> pd.DataFrame:
         """Run weighted sum optimization"""
+        # Set seed for reproducibility
+        np.random.seed(self.seed + 2)  # Different seed from other methods
+        
         n_weights = self.config.weight_combinations
-        logger.info(f"Running Weighted Sum with {n_weights} weight sets...")
+        logger.info(f"Running Weighted Sum with {n_weights} weight sets (seed={self.seed + 2})...")
         
         start_time = time.time()
         
@@ -498,7 +517,10 @@ class ExpertHeuristicBaseline(BaselineMethod):
     
     def optimize(self) -> pd.DataFrame:
         """Generate expert configurations with feasibility guarantee"""
-        logger.info("Running Expert Heuristic baseline...")
+        # Set seed for reproducibility (for variations in Phase 4)
+        np.random.seed(self.seed + 3)  # Different seed from other methods
+        
+        logger.info(f"Running Expert Heuristic baseline (seed={self.seed + 3})...")
         
         start_time = time.time()
         
@@ -902,9 +924,10 @@ class ExpertHeuristicBaseline(BaselineMethod):
 class BaselineRunner:
     """Orchestrates all baseline methods"""
     
-    def __init__(self, ontology_graph, config):
+    def __init__(self, ontology_graph, config, seed: int = DEFAULT_SEED):
         self.ontology_graph = ontology_graph
         self.config = config
+        self.seed = seed
         
         # Import evaluator
         from evaluation import EnhancedFitnessEvaluatorV3
@@ -912,13 +935,15 @@ class BaselineRunner:
         # Initialize shared evaluator
         self.evaluator = EnhancedFitnessEvaluatorV3(ontology_graph, config)
         
-        # Initialize baseline methods
+        # Initialize baseline methods with reproducible seeds
         self.methods = {
-            'random': RandomSearchBaseline(self.evaluator, config),
-            'grid': GridSearchBaseline(self.evaluator, config),
-            'weighted': WeightedSumBaseline(self.evaluator, config),
-            'expert': ExpertHeuristicBaseline(self.evaluator, config)
+            'random': RandomSearchBaseline(self.evaluator, config, seed=seed),
+            'grid': GridSearchBaseline(self.evaluator, config, seed=seed),
+            'weighted': WeightedSumBaseline(self.evaluator, config, seed=seed),
+            'expert': ExpertHeuristicBaseline(self.evaluator, config, seed=seed)
         }
+        
+        logger.info(f"BaselineRunner initialized with seed={seed}")
     
     def run_all_methods(self) -> Dict[str, pd.DataFrame]:
         """Run all baseline methods"""
