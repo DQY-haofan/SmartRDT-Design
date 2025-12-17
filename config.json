@@ -3,8 +3,8 @@
   "n_generations": 100,
   "n_partitions": 6,
   
-  "min_recall_threshold": 0.60,
-  "max_latency_seconds": 400.0,
+  "min_recall_threshold": 0.80,
+  "max_latency_seconds": 200.0,
   "max_disruption_hours": 400.0,
   "budget_cap_usd": 10000000,
   "min_mtbf_hours": 1000,
