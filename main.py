@@ -362,7 +362,7 @@ def main():
         if not args.skip_visualization and len(pareto_df) > 0:
             main_logger.info("\nStep 6: Generating visualizations...")
 
-            visualizer = Visualizer(config)
+            visualizer = Visualizer(run_dir)
             visualizer.create_all_figures(
                 pareto_results=pareto_df,
                 baseline_results=baseline_dfs if baseline_dfs else None
