@@ -1,21 +1,25 @@
 #!/usr/bin/env python3
 """
-RMTwin Enhanced Visualization for Publications
+RMTwin Individual Publication Figures
+=====================================
+生成单独的图表（非图组），适合论文直接使用
+改进Pareto前沿曲线的可视化效果
+
+Author: RMTwin Research Team
 """
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from matplotlib.gridspec import GridSpec
-from matplotlib.patches import Patch
+from matplotlib.patches import FancyBboxPatch
 import seaborn as sns
 from pathlib import Path
 from typing import Dict
-import json
 import warnings
 
 warnings.filterwarnings('ignore')
 
+# 配色
 COLORS = {
     'NSGA-III': '#1f77b4',
     'random': '#7f7f7f',
@@ -24,21 +28,25 @@ COLORS = {
     'expert': '#d62728',
 }
 
+# IEEE风格
 plt.rcParams.update({
     'font.family': 'serif',
-    'font.size': 11,
-    'axes.labelsize': 12,
-    'axes.titlesize': 13,
+    'font.size': 12,
+    'axes.labelsize': 14,
+    'axes.titlesize': 14,
+    'legend.fontsize': 11,
     'figure.facecolor': 'white',
     'axes.facecolor': 'white',
     'axes.grid': True,
     'grid.alpha': 0.3,
+    'grid.linestyle': '--',
     'savefig.dpi': 300,
     'savefig.bbox': 'tight',
 })
 
 
 def load_data(pareto_path: str):
+    """加载数据"""
     pareto_df = pd.read_csv(pareto_path)
     pareto_dir = Path(pareto_path).parent
     baseline_dfs = {}
@@ -51,427 +59,502 @@ def load_data(pareto_path: str):
     return pareto_df, baseline_dfs
 
 
-def fig1_enhanced_pareto_front(pareto_df, baseline_dfs, output_dir):
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+def fig_pareto_front_main(pareto_df, baseline_dfs, output_dir):
+    """
+    主Pareto前沿图 - 改进版
+    突出显示NSGA-III的Pareto边界
+    """
+    fig, ax = plt.subplots(figsize=(10, 7))
 
-    ax1 = axes[0]
+    # 1. 先画所有baseline点（作为背景）
     for name, df in baseline_dfs.items():
         if len(df) > 0:
-            ax1.scatter(df['f1_total_cost_USD'] / 1e6, df['detection_recall'],
-                        alpha=0.15, s=15, c=COLORS.get(name, 'gray'), label=None)
+            ax.scatter(df['f1_total_cost_USD'] / 1e6, df['detection_recall'],
+                       alpha=0.2, s=15, c=COLORS.get(name, 'gray'),
+                       label=f'{name.title()} (n={len(df)})')
 
-    ps = pareto_df.sort_values('f1_total_cost_USD')
-    ax1.fill_between(ps['f1_total_cost_USD'] / 1e6, 0, ps['detection_recall'],
-                     alpha=0.1, color=COLORS['NSGA-III'], label='NSGA-III Dominated Region')
-    ax1.plot(ps['f1_total_cost_USD'] / 1e6, ps['detection_recall'],
-             'b-', linewidth=2.5, zorder=8, label='NSGA-III Pareto Front')
-    ax1.scatter(ps['f1_total_cost_USD'] / 1e6, ps['detection_recall'],
-                s=100, c=COLORS['NSGA-III'], marker='*', zorder=10,
-                edgecolors='white', linewidths=0.8, label=f'NSGA-III Solutions (n={len(pareto_df)})')
+    # 2. 提取并排序Pareto前沿点
+    pareto_sorted = pareto_df.sort_values('f1_total_cost_USD')
+    x_pareto = pareto_sorted['f1_total_cost_USD'].values / 1e6
+    y_pareto = pareto_sorted['detection_recall'].values
 
-    ax1.axhline(y=0.95, color='red', linestyle='--', alpha=0.7, linewidth=1.5)
-    ax1.axhspan(0.95, 1.0, alpha=0.08, color='green')
-    ax1.text(8, 0.97, 'High-Quality\nRegion', fontsize=10, color='green', ha='center')
+    # 3. 创建阶梯状Pareto前沿（更准确的表示）
+    x_step = []
+    y_step = []
+    for i in range(len(x_pareto)):
+        if i > 0:
+            # 水平线段
+            x_step.append(x_pareto[i])
+            y_step.append(y_pareto[i - 1])
+        x_step.append(x_pareto[i])
+        y_step.append(y_pareto[i])
 
-    ax1.set_xlabel('Total Cost (Million USD)', fontsize=12)
-    ax1.set_ylabel('Detection Recall', fontsize=12)
-    ax1.set_title('(a) Pareto Front with Dominated Region', fontsize=13, fontweight='bold')
-    ax1.legend(loc='lower right', fontsize=9)
-    ax1.set_xlim(0, 10)
-    ax1.set_ylim(0.6, 1.0)
+    # 4. 填充Pareto支配区域
+    x_fill = [0] + list(x_step) + [x_step[-1], 0]
+    y_fill = [y_step[0]] + list(y_step) + [0, 0]
+    ax.fill(x_fill, y_fill, alpha=0.15, color=COLORS['NSGA-III'],
+            label='NSGA-III Dominated Region')
 
-    ax2 = axes[1]
-    nsga_hq = pareto_df[pareto_df['detection_recall'] >= 0.90]
+    # 5. 画Pareto前沿线（粗线）
+    ax.plot(x_step, y_step, color=COLORS['NSGA-III'], linewidth=3,
+            linestyle='-', zorder=8, label='NSGA-III Pareto Front')
 
+    # 6. 画Pareto解点（大星星）
+    ax.scatter(x_pareto, y_pareto, s=200, c=COLORS['NSGA-III'],
+               marker='*', zorder=10, edgecolors='white', linewidths=1.5,
+               label=f'NSGA-III Solutions (n={len(pareto_df)})')
+
+    # 7. 标注关键点
+    # 最低成本点
+    min_cost_idx = pareto_sorted['f1_total_cost_USD'].idxmin()
+    min_cost_sol = pareto_sorted.loc[min_cost_idx]
+    ax.annotate(f"Min Cost\n${min_cost_sol['f1_total_cost_USD'] / 1e6:.2f}M",
+                xy=(min_cost_sol['f1_total_cost_USD'] / 1e6, min_cost_sol['detection_recall']),
+                xytext=(20, -30), textcoords='offset points', fontsize=11,
+                bbox=dict(boxstyle='round,pad=0.3', facecolor='yellow', alpha=0.8),
+                arrowprops=dict(arrowstyle='->', color='black', lw=1.5))
+
+    # 最高recall点
+    max_recall_idx = pareto_sorted['detection_recall'].idxmax()
+    max_recall_sol = pareto_sorted.loc[max_recall_idx]
+    if max_recall_idx != min_cost_idx:
+        ax.annotate(f"Max Recall\n{max_recall_sol['detection_recall']:.3f}",
+                    xy=(max_recall_sol['f1_total_cost_USD'] / 1e6, max_recall_sol['detection_recall']),
+                    xytext=(30, 10), textcoords='offset points', fontsize=11,
+                    bbox=dict(boxstyle='round,pad=0.3', facecolor='lightgreen', alpha=0.8),
+                    arrowprops=dict(arrowstyle='->', color='black', lw=1.5))
+
+    # 8. 添加参考线
+    ax.axhline(y=0.95, color='red', linestyle='--', alpha=0.7, linewidth=1.5, label='Target Recall = 0.95')
+    ax.axhspan(0.95, 1.0, alpha=0.05, color='green')
+
+    # 设置
+    ax.set_xlabel('Total Cost (Million USD)', fontsize=14)
+    ax.set_ylabel('Detection Recall', fontsize=14)
+    ax.set_title('Pareto Front: Cost vs Detection Recall', fontsize=16, fontweight='bold')
+    ax.legend(loc='lower right', fontsize=10, framealpha=0.9)
+    ax.set_xlim(0, max(10, x_pareto.max() * 1.1))
+    ax.set_ylim(0.55, 1.02)
+
+    plt.tight_layout()
+    for fmt in ['pdf', 'png']:
+        fig.savefig(output_dir / f'fig_pareto_front.{fmt}', dpi=300, bbox_inches='tight')
+    plt.close()
+    print("  ✓ Pareto Front (main)")
+
+
+def fig_pareto_front_zoomed(pareto_df, baseline_dfs, output_dir):
+    """
+    高质量区域放大图
+    """
+    fig, ax = plt.subplots(figsize=(10, 7))
+
+    # 只显示高质量解 (recall >= 0.90)
+    nsga_hq = pareto_df[pareto_df['detection_recall'] >= 0.90].sort_values('f1_total_cost_USD')
+
+    # Baseline高质量解
     for name, df in baseline_dfs.items():
+        if len(df) == 0:
+            continue
         hq = df[df['detection_recall'] >= 0.90]
         if len(hq) > 0:
-            ax2.scatter(hq['f1_total_cost_USD'] / 1e6, hq['detection_recall'],
-                        alpha=0.3, s=25, c=COLORS.get(name, 'gray'), label=f'{name.title()} (n={len(hq)})')
+            ax.scatter(hq['f1_total_cost_USD'] / 1e6, hq['detection_recall'],
+                       alpha=0.3, s=30, c=COLORS.get(name, 'gray'),
+                       label=f'{name.title()} (n={len(hq)})')
 
-    ax2.scatter(nsga_hq['f1_total_cost_USD'] / 1e6, nsga_hq['detection_recall'],
-                s=150, c=COLORS['NSGA-III'], marker='*', zorder=10,
-                edgecolors='white', linewidths=1, label=f'NSGA-III (n={len(nsga_hq)})')
-
-    nsga_hq_sorted = nsga_hq.sort_values('f1_total_cost_USD')
-    ax2.plot(nsga_hq_sorted['f1_total_cost_USD'] / 1e6, nsga_hq_sorted['detection_recall'],
-             'b--', linewidth=1.5, alpha=0.7, zorder=5)
-
+    # NSGA-III Pareto前沿
     if len(nsga_hq) > 0:
+        x_pareto = nsga_hq['f1_total_cost_USD'].values / 1e6
+        y_pareto = nsga_hq['detection_recall'].values
+
+        # 阶梯线
+        x_step, y_step = [], []
+        for i in range(len(x_pareto)):
+            if i > 0:
+                x_step.append(x_pareto[i])
+                y_step.append(y_pareto[i - 1])
+            x_step.append(x_pareto[i])
+            y_step.append(y_pareto[i])
+
+        ax.plot(x_step, y_step, color=COLORS['NSGA-III'], linewidth=2.5,
+                linestyle='-', zorder=8)
+        ax.scatter(x_pareto, y_pareto, s=180, c=COLORS['NSGA-III'],
+                   marker='*', zorder=10, edgecolors='white', linewidths=1.5,
+                   label=f'NSGA-III (n={len(nsga_hq)})')
+
+        # 标注最优解
         best = nsga_hq.loc[nsga_hq['f1_total_cost_USD'].idxmin()]
-        ax2.annotate(f"NSGA Best\n${best['f1_total_cost_USD'] / 1e6:.3f}M\nRecall={best['detection_recall']:.3f}",
-                     xy=(best['f1_total_cost_USD'] / 1e6, best['detection_recall']),
-                     xytext=(40, -25), textcoords='offset points', fontsize=10,
-                     bbox=dict(boxstyle='round,pad=0.4', facecolor='yellow', alpha=0.8, edgecolor='orange'),
-                     arrowprops=dict(arrowstyle='->', color='orange', lw=1.5))
+        ax.annotate(f"Best: ${best['f1_total_cost_USD'] / 1e6:.3f}M\nRecall: {best['detection_recall']:.3f}",
+                    xy=(best['f1_total_cost_USD'] / 1e6, best['detection_recall']),
+                    xytext=(40, -20), textcoords='offset points', fontsize=11,
+                    bbox=dict(boxstyle='round,pad=0.4', facecolor='yellow', alpha=0.9, edgecolor='orange'),
+                    arrowprops=dict(arrowstyle='->', color='orange', lw=2))
 
-    ax2.axhline(y=0.95, color='red', linestyle='--', alpha=0.7)
-    ax2.set_xlabel('Total Cost (Million USD)', fontsize=12)
-    ax2.set_ylabel('Detection Recall', fontsize=12)
-    ax2.set_title('(b) High-Quality Region (Recall >= 0.90)', fontsize=13, fontweight='bold')
-    ax2.legend(loc='lower right', fontsize=9)
-    ax2.set_ylim(0.90, 1.0)
+    ax.axhline(y=0.95, color='red', linestyle='--', alpha=0.7, linewidth=1.5, label='Target = 0.95')
+    ax.axhspan(0.95, 1.0, alpha=0.08, color='green')
 
-    plt.suptitle('Figure 1: Multi-Objective Pareto Front Analysis', fontsize=14, fontweight='bold', y=1.02)
+    ax.set_xlabel('Total Cost (Million USD)', fontsize=14)
+    ax.set_ylabel('Detection Recall', fontsize=14)
+    ax.set_title('High-Quality Region (Recall ≥ 0.90)', fontsize=16, fontweight='bold')
+    ax.legend(loc='lower right', fontsize=10)
+    ax.set_ylim(0.895, 1.005)
+
     plt.tight_layout()
-
     for fmt in ['pdf', 'png']:
-        fig.savefig(output_dir / f'fig1_pareto_front_enhanced.{fmt}', dpi=300, bbox_inches='tight')
+        fig.savefig(output_dir / f'fig_pareto_zoomed.{fmt}', dpi=300, bbox_inches='tight')
     plt.close()
-    print("  ✓ Fig 1: Enhanced Pareto Front")
+    print("  ✓ Pareto Front (zoomed)")
 
 
-def fig2_dominance_and_contribution(pareto_df, baseline_dfs, metrics_dir, output_dir):
-    fig = plt.figure(figsize=(14, 5))
-    gs = GridSpec(1, 3, figure=fig, wspace=0.3)
-
+def fig_dominance_coverage(metrics_dir, output_dir):
+    """
+    支配关系对比图 - 单独
+    """
     try:
         coverage_df = pd.read_csv(metrics_dir / 'coverage_metrics.csv')
+    except:
+        print("  ⚠ Coverage metrics not found")
+        return
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    x = np.arange(len(coverage_df))
+    width = 0.35
+
+    bars1 = ax.bar(x - width / 2, coverage_df['NSGA_Dominates_%'], width,
+                   label='NSGA-III Dominates Baseline', color=COLORS['NSGA-III'], alpha=0.85)
+    bars2 = ax.bar(x + width / 2, coverage_df['Baseline_Dominates_%'], width,
+                   label='Baseline Dominates NSGA-III', color='gray', alpha=0.6)
+
+    # 数值标签
+    for bar in bars1:
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width() / 2, height + 1.5,
+                f'{height:.1f}%', ha='center', fontsize=11, fontweight='bold', color=COLORS['NSGA-III'])
+    for bar in bars2:
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width() / 2, height + 1.5,
+                f'{height:.1f}%', ha='center', fontsize=10, color='gray')
+
+    ax.set_ylabel('Dominated Solutions (%)', fontsize=14)
+    ax.set_xlabel('Baseline Method', fontsize=14)
+    ax.set_title('Dominance Coverage Analysis', fontsize=16, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels([b.title() for b in coverage_df['Baseline']], fontsize=12)
+    ax.legend(fontsize=11, loc='upper right')
+    ax.set_ylim(0, 110)
+    ax.axhline(y=50, color='gray', linestyle=':', alpha=0.5)
+
+    plt.tight_layout()
+    for fmt in ['pdf', 'png']:
+        fig.savefig(output_dir / f'fig_dominance.{fmt}', dpi=300, bbox_inches='tight')
+    plt.close()
+    print("  ✓ Dominance Coverage")
+
+
+def fig_contribution_pie(metrics_dir, output_dir):
+    """
+    贡献度饼图 - 单独
+    """
+    try:
         contrib_df = pd.read_csv(metrics_dir / 'contribution_metrics.csv')
     except:
-        print("  ⚠ Metrics files not found")
+        print("  ⚠ Contribution metrics not found")
+        return
+
+    fig, ax = plt.subplots(figsize=(8, 8))
+
+    # 过滤零贡献
+    contrib_df = contrib_df[contrib_df['Contribution_%'] > 0].sort_values('Contribution_%', ascending=False)
+
+    if len(contrib_df) == 0:
+        print("  ⚠ No contribution data")
         plt.close()
         return
 
-    ax1 = fig.add_subplot(gs[0])
-    x = np.arange(len(coverage_df))
-    width = 0.35
-    bars1 = ax1.bar(x - width / 2, coverage_df['NSGA_Dominates_%'], width,
-                    label='NSGA-III Dominates', color=COLORS['NSGA-III'], alpha=0.8)
-    bars2 = ax1.bar(x + width / 2, coverage_df['Baseline_Dominates_%'], width,
-                    label='Baseline Dominates', color='gray', alpha=0.6)
-    ax1.set_ylabel('Dominated Solutions (%)', fontsize=11)
-    ax1.set_title('(a) Dominance Coverage', fontsize=12, fontweight='bold')
-    ax1.set_xticks(x)
-    ax1.set_xticklabels(coverage_df['Baseline'], rotation=0)
-    ax1.legend(fontsize=9)
-    ax1.set_ylim(0, 105)
-    for bar in bars1:
-        ax1.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 2,
-                 f'{bar.get_height():.0f}%', ha='center', fontsize=9, fontweight='bold', color=COLORS['NSGA-III'])
+    colors = [COLORS.get(m, 'gray') if m != 'NSGA-III' else COLORS['NSGA-III']
+              for m in contrib_df['Method']]
+    explode = [0.08 if m == 'NSGA-III' else 0 for m in contrib_df['Method']]
 
-    ax2 = fig.add_subplot(gs[1])
-    contrib_df = contrib_df[contrib_df['Contribution_%'] > 0].sort_values('Contribution_%', ascending=False)
-    if len(contrib_df) > 0:
-        colors = [COLORS.get(m, 'gray') if m != 'NSGA-III' else COLORS['NSGA-III'] for m in contrib_df['Method']]
-        explode = [0.1 if m == 'NSGA-III' else 0 for m in contrib_df['Method']]
-        wedges, texts, autotexts = ax2.pie(
-            contrib_df['Contribution_%'], labels=contrib_df['Method'],
-            autopct='%1.1f%%', colors=colors, explode=explode,
-            startangle=90, textprops={'fontsize': 10})
-        for i, m in enumerate(contrib_df['Method']):
-            if m == 'NSGA-III':
-                autotexts[i].set_fontweight('bold')
-    ax2.set_title('(b) Contribution to Combined\nPareto Front', fontsize=12, fontweight='bold')
+    wedges, texts, autotexts = ax.pie(
+        contrib_df['Contribution_%'],
+        labels=contrib_df['Method'],
+        autopct='%1.1f%%',
+        colors=colors,
+        explode=explode,
+        startangle=90,
+        textprops={'fontsize': 12},
+        pctdistance=0.75
+    )
 
-    ax3 = fig.add_subplot(gs[2])
-    net_adv = coverage_df['NSGA_Dominates_%'] - coverage_df['Baseline_Dominates_%']
-    colors_bar = [COLORS['NSGA-III'] if v > 0 else 'red' for v in net_adv]
-    bars = ax3.barh(coverage_df['Baseline'], net_adv, color=colors_bar, alpha=0.8)
-    ax3.axvline(x=0, color='black', linewidth=1)
-    ax3.set_xlabel('Net Dominance Advantage (%)', fontsize=11)
-    ax3.set_title('(c) NSGA-III Net Advantage', fontsize=12, fontweight='bold')
-    for bar, val in zip(bars, net_adv):
-        x_pos = bar.get_width() + 2 if val > 0 else bar.get_width() - 8
-        ax3.text(x_pos, bar.get_y() + bar.get_height() / 2, f'{val:.0f}%', va='center', fontsize=10, fontweight='bold')
+    # 突出NSGA-III
+    for i, m in enumerate(contrib_df['Method']):
+        if m == 'NSGA-III':
+            autotexts[i].set_fontweight('bold')
+            autotexts[i].set_fontsize(14)
+            texts[i].set_fontweight('bold')
+            texts[i].set_fontsize(14)
 
-    plt.suptitle('Figure 2: NSGA-III Dominance and Contribution Analysis', fontsize=14, fontweight='bold', y=1.02)
+    ax.set_title('Contribution to Combined Pareto Front', fontsize=16, fontweight='bold', pad=20)
+
+    plt.tight_layout()
     for fmt in ['pdf', 'png']:
-        fig.savefig(output_dir / f'fig2_dominance_contribution.{fmt}', dpi=300, bbox_inches='tight')
+        fig.savefig(output_dir / f'fig_contribution.{fmt}', dpi=300, bbox_inches='tight')
     plt.close()
-    print("  ✓ Fig 2: Dominance & Contribution")
+    print("  ✓ Contribution Pie")
 
 
-def fig3_quality_metrics(metrics_dir, output_dir):
-    fig, axes = plt.subplots(1, 3, figsize=(14, 5))
+def fig_hypervolume_comparison(metrics_dir, output_dir):
+    """
+    Hypervolume对比柱状图 - 单独
+    """
     try:
         quality_df = pd.read_csv(metrics_dir / 'quality_metrics.csv')
     except:
         print("  ⚠ Quality metrics not found")
-        plt.close()
         return
 
+    fig, ax = plt.subplots(figsize=(10, 6))
+
     methods = quality_df['Method'].tolist()
+    hv_values = quality_df['HV'].values
     colors = [COLORS.get(m, 'gray') if m != 'NSGA-III' else COLORS['NSGA-III'] for m in methods]
 
-    ax1 = axes[0]
-    bars = ax1.bar(methods, quality_df['HV'], color=colors, alpha=0.8)
-    ax1.set_ylabel('Hypervolume', fontsize=11)
-    ax1.set_title('(a) Hypervolume (higher=better)', fontsize=12, fontweight='bold')
-    ax1.tick_params(axis='x', rotation=45)
+    bars = ax.bar(methods, hv_values, color=colors, alpha=0.85, edgecolor='black', linewidth=0.5)
 
-    ax2 = axes[1]
-    bars = ax2.bar(methods, quality_df['Spacing'], color=colors, alpha=0.8)
-    ax2.set_ylabel('Spacing', fontsize=11)
-    ax2.set_title('(b) Spacing (lower=better)', fontsize=12, fontweight='bold')
-    ax2.tick_params(axis='x', rotation=45)
+    # 标注最高值
+    max_idx = np.argmax(hv_values)
+    bars[max_idx].set_edgecolor('gold')
+    bars[max_idx].set_linewidth(3)
 
-    ax3 = axes[2]
-    bars = ax3.bar(methods, quality_df['Spread'], color=colors, alpha=0.8)
-    ax3.set_ylabel('Maximum Spread', fontsize=11)
-    ax3.set_title('(c) Maximum Spread (higher=better)', fontsize=12, fontweight='bold')
-    ax3.tick_params(axis='x', rotation=45)
+    # 数值标签
+    for bar in bars:
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width() / 2, height + hv_values.max() * 0.02,
+                f'{height:.2e}', ha='center', fontsize=10, rotation=0)
 
-    plt.suptitle('Figure 3: Multi-Objective Quality Metrics Comparison', fontsize=14, fontweight='bold', y=1.02)
+    ax.set_ylabel('Hypervolume', fontsize=14)
+    ax.set_xlabel('Method', fontsize=14)
+    ax.set_title('Hypervolume Comparison (Higher = Better)', fontsize=16, fontweight='bold')
+    ax.tick_params(axis='x', labelsize=12)
+
     plt.tight_layout()
     for fmt in ['pdf', 'png']:
-        fig.savefig(output_dir / f'fig3_quality_metrics.{fmt}', dpi=300, bbox_inches='tight')
+        fig.savefig(output_dir / f'fig_hypervolume.{fmt}', dpi=300, bbox_inches='tight')
     plt.close()
-    print("  ✓ Fig 3: Quality Metrics")
+    print("  ✓ Hypervolume Comparison")
 
 
-def fig4_high_quality_focus(pareto_df, baseline_dfs, output_dir):
-    fig = plt.figure(figsize=(14, 10))
-    gs = GridSpec(2, 2, figure=fig, hspace=0.3, wspace=0.3)
+def fig_high_quality_count(pareto_df, baseline_dfs, output_dir):
+    """
+    高质量解数量对比 - 单独
+    """
+    fig, ax = plt.subplots(figsize=(10, 6))
 
-    ax1 = fig.add_subplot(gs[0, 0])
-    thresholds = [0.95, 0.90, 0.85, 0.80]
-    methods = ['NSGA-III'] + list(baseline_dfs.keys())
-    count_data = []
-    for thresh in thresholds:
-        row = {'Threshold': f'>={thresh}'}
-        row['NSGA-III'] = len(pareto_df[pareto_df['detection_recall'] >= thresh])
-        for name, df in baseline_dfs.items():
-            row[name] = len(df[df['detection_recall'] >= thresh]) if len(df) > 0 else 0
-        count_data.append(row)
-    count_df = pd.DataFrame(count_data).set_index('Threshold')
-    count_df.plot(kind='bar', ax=ax1, width=0.8,
-                  color=[COLORS.get(m, 'gray') if m != 'NSGA-III' else COLORS['NSGA-III'] for m in count_df.columns])
-    ax1.set_xlabel('Recall Threshold')
-    ax1.set_ylabel('Number of Solutions')
-    ax1.set_title('(a) Solutions at Quality Thresholds', fontweight='bold')
-    ax1.tick_params(axis='x', rotation=0)
-    ax1.legend(fontsize=8)
-
-    ax2 = fig.add_subplot(gs[0, 1])
-    hq_data = []
-    labels = []
-    nsga_hq = pareto_df[pareto_df['detection_recall'] >= 0.95]['f1_total_cost_USD'] / 1e6
-    if len(nsga_hq) > 0:
-        hq_data.append(nsga_hq.values)
-        labels.append('NSGA-III')
+    # 统计各方法高质量解数量
+    hq_data = {'NSGA-III': len(pareto_df[pareto_df['detection_recall'] >= 0.95])}
     for name, df in baseline_dfs.items():
-        if len(df) == 0:
-            continue
-        hq = df[df['detection_recall'] >= 0.95]['f1_total_cost_USD'] / 1e6
-        if len(hq) > 0:
-            hq_data.append(hq.values)
-            labels.append(name)
-    if hq_data:
-        bp = ax2.boxplot(hq_data, tick_labels=labels, patch_artist=True)
-        colors_box = [COLORS.get(l, 'gray') if l != 'NSGA-III' else COLORS['NSGA-III'] for l in labels]
-        for patch, color in zip(bp['boxes'], colors_box):
-            patch.set_facecolor(color)
-            patch.set_alpha(0.6)
-    ax2.set_ylabel('Cost (Million USD)')
-    ax2.set_title('(b) Cost Distribution (Recall >= 0.95)', fontweight='bold')
-    ax2.tick_params(axis='x', rotation=45)
-
-    ax3 = fig.add_subplot(gs[1, 0])
-    for name, df in baseline_dfs.items():
-        if len(df) == 0:
-            continue
-        hq = df[df['detection_recall'] >= 0.90]
-        if len(hq) > 0:
-            ax3.scatter(hq['f1_total_cost_USD'] / 1e6, hq['detection_recall'],
-                        alpha=0.3, s=30, c=COLORS.get(name, 'gray'), label=name)
-    nsga_hq = pareto_df[pareto_df['detection_recall'] >= 0.90]
-    ax3.scatter(nsga_hq['f1_total_cost_USD'] / 1e6, nsga_hq['detection_recall'],
-                s=120, c=COLORS['NSGA-III'], marker='*', zorder=10,
-                edgecolors='white', linewidths=1, label='NSGA-III')
-    ax3.axhline(y=0.95, color='red', linestyle='--', alpha=0.7)
-    ax3.set_xlabel('Cost (Million USD)')
-    ax3.set_ylabel('Detection Recall')
-    ax3.set_title('(c) High-Quality Solutions Distribution', fontweight='bold')
-    ax3.legend(fontsize=8)
-    ax3.set_ylim(0.90, 1.0)
-
-    ax4 = fig.add_subplot(gs[1, 1])
-    ax4.axis('off')
-    table_data = []
-    nsga_hq = pareto_df[pareto_df['detection_recall'] >= 0.95]
-    if len(nsga_hq) > 0:
-        best = nsga_hq.loc[nsga_hq['f1_total_cost_USD'].idxmin()]
-        table_data.append(['NSGA-III', f"${best['f1_total_cost_USD'] / 1e6:.3f}M",
-                           f"{best['detection_recall']:.3f}", str(len(nsga_hq))])
-    for name, df in baseline_dfs.items():
-        if len(df) == 0:
-            table_data.append([name.title(), 'N/A', 'N/A', '0'])
-            continue
-        hq = df[df['detection_recall'] >= 0.95]
-        if len(hq) > 0:
-            best = hq.loc[hq['f1_total_cost_USD'].idxmin()]
-            table_data.append([name.title(), f"${best['f1_total_cost_USD'] / 1e6:.3f}M",
-                               f"{best['detection_recall']:.3f}", str(len(hq))])
+        if len(df) > 0:
+            hq_data[name] = len(df[df['detection_recall'] >= 0.95])
         else:
-            table_data.append([name.title(), 'N/A', 'N/A', '0'])
+            hq_data[name] = 0
 
-    if len(table_data) > 0:
-        table = ax4.table(cellText=table_data,
-                          colLabels=['Method', 'Min Cost', 'Recall', 'N'],
-                          loc='center', cellLoc='center',
-                          colColours=['lightblue'] * 4)
-        table.auto_set_font_size(False)
-        table.set_fontsize(11)
-        table.scale(1.2, 1.8)
-        # 高亮NSGA-III行
-        if len(table_data) > 0:
-            for j in range(4):
-                table[(1, j)].set_facecolor('#d4e6f1')
+    methods = list(hq_data.keys())
+    counts = list(hq_data.values())
+    colors = [COLORS.get(m, 'gray') if m != 'NSGA-III' else COLORS['NSGA-III'] for m in methods]
 
-    ax4.set_title('(d) Best Solutions (Recall >= 0.95)', fontweight='bold', pad=20)
-    plt.suptitle('Figure 4: High-Quality Region Analysis', fontsize=14, fontweight='bold', y=1.02)
+    bars = ax.bar(methods, counts, color=colors, alpha=0.85, edgecolor='black', linewidth=0.5)
+
+    # 数值标签
+    for bar in bars:
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width() / 2, height + max(counts) * 0.02,
+                f'{int(height)}', ha='center', fontsize=12, fontweight='bold')
+
+    ax.set_ylabel('Number of Solutions', fontsize=14)
+    ax.set_xlabel('Method', fontsize=14)
+    ax.set_title('High-Quality Solutions Count (Recall ≥ 0.95)', fontsize=16, fontweight='bold')
+    ax.tick_params(axis='x', labelsize=12)
+
+    plt.tight_layout()
     for fmt in ['pdf', 'png']:
-        fig.savefig(output_dir / f'fig4_high_quality_focus.{fmt}', dpi=300, bbox_inches='tight')
+        fig.savefig(output_dir / f'fig_hq_count.{fmt}', dpi=300, bbox_inches='tight')
     plt.close()
-    print("  ✓ Fig 4: High-Quality Focus")
+    print("  ✓ High-Quality Count")
 
 
-def fig5_statistical_significance(metrics_dir, output_dir):
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+def fig_effect_size(metrics_dir, output_dir):
+    """
+    效应量对比图 - 单独
+    """
     try:
         stat_df = pd.read_csv(metrics_dir / 'statistical_tests.csv')
-        stat_df = stat_df.dropna(subset=['Cost_d', 'Recall_d'])
+        stat_df = stat_df.dropna(subset=['Cost_d'])
     except:
         print("  ⚠ Statistical tests not found")
-        plt.close()
         return
 
     if len(stat_df) == 0:
         print("  ⚠ No valid statistical data")
-        plt.close()
         return
 
-    ax1 = axes[0]
+    fig, ax = plt.subplots(figsize=(10, 6))
+
     methods = [c.replace('vs ', '') for c in stat_df['Comparison']]
     deltas = stat_df['Cost_d'].values
-    colors = ['green' if d > 0 else 'red' for d in deltas]
-    bars = ax1.barh(methods, deltas, color=colors, alpha=0.7)
-    for thresh in [0.474, 0.33, 0.147]:
-        ax1.axvline(x=thresh, color='gray', linestyle=':', alpha=0.5)
-        ax1.axvline(x=-thresh, color='gray', linestyle=':', alpha=0.5)
-    ax1.axvline(x=0, color='black', linewidth=1)
-    ax1.set_xlabel("Cliff's Delta (Cost)", fontsize=11)
-    ax1.set_title("(a) Effect Size: Cost\n(Positive = NSGA-III Better)", fontweight='bold')
-    ax1.set_xlim(-1, 1)
 
-    ax2 = axes[1]
-    deltas = stat_df['Recall_d'].values
-    colors = ['green' if d > 0 else 'red' for d in deltas]
-    bars = ax2.barh(methods, deltas, color=colors, alpha=0.7)
-    for thresh in [0.474, 0.33, 0.147]:
-        ax2.axvline(x=thresh, color='gray', linestyle=':', alpha=0.5)
-        ax2.axvline(x=-thresh, color='gray', linestyle=':', alpha=0.5)
-    ax2.axvline(x=0, color='black', linewidth=1)
-    ax2.set_xlabel("Cliff's Delta (Recall)", fontsize=11)
-    ax2.set_title("(b) Effect Size: Recall\n(Positive = NSGA-III Better)", fontweight='bold')
-    ax2.set_xlim(-1, 1)
+    colors = ['#2ecc71' if d > 0.147 else '#e74c3c' if d < -0.147 else '#95a5a6' for d in deltas]
+    bars = ax.barh(methods, deltas, color=colors, alpha=0.8, height=0.6)
 
-    plt.suptitle("Figure 5: Statistical Effect Size Analysis (Cliff's Delta)", fontsize=14, fontweight='bold', y=1.02)
+    # 效应量参考线
+    for thresh, label, alpha in [(0.474, 'Large', 0.3), (0.33, 'Medium', 0.2), (0.147, 'Small', 0.1)]:
+        ax.axvline(x=thresh, color='green', linestyle='--', alpha=alpha, linewidth=1.5)
+        ax.axvline(x=-thresh, color='red', linestyle='--', alpha=alpha, linewidth=1.5)
+
+    ax.axvline(x=0, color='black', linewidth=1.5)
+
+    # 标签和效应量描述
+    for bar, (_, row) in zip(bars, stat_df.iterrows()):
+        x = bar.get_width()
+        effect = row['Cost_Effect']
+        label_x = x + 0.05 if x > 0 else x - 0.05
+        ha = 'left' if x > 0 else 'right'
+        ax.text(label_x, bar.get_y() + bar.get_height() / 2,
+                f'{x:.2f} ({effect})', va='center', ha=ha, fontsize=11, fontweight='bold')
+
+    ax.set_xlabel("Cliff's Delta (Cost)", fontsize=14)
+    ax.set_ylabel('Baseline Method', fontsize=14)
+    ax.set_title("Effect Size Analysis\n(Positive = NSGA-III has lower cost)", fontsize=16, fontweight='bold')
+    ax.set_xlim(-1, 1)
+    ax.tick_params(axis='y', labelsize=12)
+
+    # 图例
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(facecolor='#2ecc71', alpha=0.8, label='NSGA-III Better'),
+        Patch(facecolor='#e74c3c', alpha=0.8, label='Baseline Better'),
+        Patch(facecolor='#95a5a6', alpha=0.8, label='Negligible')
+    ]
+    ax.legend(handles=legend_elements, loc='upper right', fontsize=10)
+
     plt.tight_layout()
     for fmt in ['pdf', 'png']:
-        fig.savefig(output_dir / f'fig5_statistical_effect.{fmt}', dpi=300, bbox_inches='tight')
+        fig.savefig(output_dir / f'fig_effect_size.{fmt}', dpi=300, bbox_inches='tight')
     plt.close()
-    print("  ✓ Fig 5: Statistical Effect Size")
+    print("  ✓ Effect Size")
 
 
-def fig6_summary_dashboard(pareto_df, baseline_dfs, metrics_dir, output_dir):
-    fig = plt.figure(figsize=(16, 10))
-    gs = GridSpec(2, 3, figure=fig, hspace=0.35, wspace=0.3)
-
+def fig_efficiency_comparison(pareto_df, baseline_dfs, metrics_dir, output_dir):
+    """
+    效率对比图 - 关键图！展示NSGA-III的效率优势
+    """
     try:
-        coverage_df = pd.read_csv(metrics_dir / 'coverage_metrics.csv')
         contrib_df = pd.read_csv(metrics_dir / 'contribution_metrics.csv')
-        quality_df = pd.read_csv(metrics_dir / 'quality_metrics.csv')
     except:
-        print("  ⚠ Metrics not found")
-        plt.close()
+        print("  ⚠ Contribution metrics not found")
         return
 
-    ax1 = fig.add_subplot(gs[0, 0])
-    for name, df in baseline_dfs.items():
-        if len(df) > 0:
-            ax1.scatter(df['f1_total_cost_USD'] / 1e6, df['detection_recall'],
-                        alpha=0.1, s=10, c=COLORS.get(name, 'gray'))
-    ps = pareto_df.sort_values('f1_total_cost_USD')
-    ax1.plot(ps['f1_total_cost_USD'] / 1e6, ps['detection_recall'], 'b-', lw=2)
-    ax1.scatter(ps['f1_total_cost_USD'] / 1e6, ps['detection_recall'],
-                s=80, c=COLORS['NSGA-III'], marker='*', zorder=10)
-    ax1.set_xlabel('Cost (M$)')
-    ax1.set_ylabel('Recall')
-    ax1.set_title('(a) Pareto Front Overview', fontweight='bold')
-    ax1.set_xlim(0, 10)
-    ax1.set_ylim(0.6, 1.0)
+    fig, ax = plt.subplots(figsize=(10, 7))
 
-    ax2 = fig.add_subplot(gs[0, 1])
-    avg_dom = coverage_df['NSGA_Dominates_%'].mean()
-    avg_dom_by = coverage_df['Baseline_Dominates_%'].mean()
-    ax2.bar(['NSGA-III\nDominates', 'Baseline\nDominates'],
-            [avg_dom, avg_dom_by], color=[COLORS['NSGA-III'], 'gray'], alpha=0.8)
-    ax2.set_ylabel('Average %')
-    ax2.set_title(f'(b) Average Dominance\nNSGA: {avg_dom:.0f}% vs Baseline: {avg_dom_by:.0f}%', fontweight='bold')
-    ax2.set_ylim(0, 100)
+    # 计算效率
+    efficiency_data = []
 
-    ax3 = fig.add_subplot(gs[0, 2])
     nsga_contrib = contrib_df[contrib_df['Method'] == 'NSGA-III']['Contribution_%'].values
     nsga_contrib = nsga_contrib[0] if len(nsga_contrib) > 0 else 0
-    other_contrib = 100 - nsga_contrib
-    ax3.pie([nsga_contrib, other_contrib], labels=['NSGA-III', 'Others'],
-            colors=[COLORS['NSGA-III'], 'lightgray'],
-            autopct='%1.1f%%', startangle=90, explode=[0.05, 0],
-            textprops={'fontsize': 11})
-    ax3.set_title('(c) Contribution to\nCombined Front', fontweight='bold')
+    efficiency_data.append({
+        'Method': 'NSGA-III',
+        'N_Solutions': len(pareto_df),
+        'Contribution': nsga_contrib,
+        'Efficiency': nsga_contrib / len(pareto_df) if len(pareto_df) > 0 else 0
+    })
 
-    ax4 = fig.add_subplot(gs[1, 0])
-    hq_counts = {'NSGA-III': len(pareto_df[pareto_df['detection_recall'] >= 0.95])}
     for name, df in baseline_dfs.items():
-        hq_counts[name] = len(df[df['detection_recall'] >= 0.95]) if len(df) > 0 else 0
-    colors_bar = [COLORS.get(m, 'gray') if m != 'NSGA-III' else COLORS['NSGA-III'] for m in hq_counts.keys()]
-    ax4.bar(hq_counts.keys(), hq_counts.values(), color=colors_bar, alpha=0.8)
-    ax4.set_ylabel('Count')
-    ax4.set_title('(d) High-Quality Solutions\n(Recall >= 0.95)', fontweight='bold')
-    ax4.tick_params(axis='x', rotation=45)
+        contrib = contrib_df[contrib_df['Method'] == name]['Contribution_%'].values
+        contrib = contrib[0] if len(contrib) > 0 else 0
+        n = len(df)
+        efficiency_data.append({
+            'Method': name,
+            'N_Solutions': n,
+            'Contribution': contrib,
+            'Efficiency': contrib / n if n > 0 else 0
+        })
 
-    ax5 = fig.add_subplot(gs[1, 1])
-    hv_data = quality_df.set_index('Method')['HV']
-    colors_bar = [COLORS.get(m, 'gray') if m != 'NSGA-III' else COLORS['NSGA-III'] for m in hv_data.index]
-    ax5.bar(hv_data.index, hv_data.values, color=colors_bar, alpha=0.8)
-    ax5.set_ylabel('Hypervolume')
-    ax5.set_title('(e) Hypervolume Comparison', fontweight='bold')
-    ax5.tick_params(axis='x', rotation=45)
+    eff_df = pd.DataFrame(efficiency_data)
+    eff_df = eff_df.sort_values('Efficiency', ascending=True)
 
-    ax6 = fig.add_subplot(gs[1, 2])
-    ax6.axis('off')
-    conclusions = f"""
-    KEY FINDINGS
-    {'=' * 32}
+    colors = [COLORS.get(m, 'gray') if m != 'NSGA-III' else COLORS['NSGA-III'] for m in eff_df['Method']]
 
-    * NSGA-III dominates {avg_dom:.0f}% of
-      baseline solutions on average
+    bars = ax.barh(eff_df['Method'], eff_df['Efficiency'], color=colors, alpha=0.85, height=0.6)
 
-    * Contributes {nsga_contrib:.1f}% to the
-      combined Pareto front
+    # 数值标签
+    for bar, (_, row) in zip(bars, eff_df.iterrows()):
+        width = bar.get_width()
+        ax.text(width + 0.05, bar.get_y() + bar.get_height() / 2,
+                f'{width:.2f}%/sol\n({row["Contribution"]:.1f}% / {row["N_Solutions"]})',
+                va='center', fontsize=10)
 
-    * Provides {len(pareto_df)} diverse
-      Pareto-optimal solutions
+    ax.set_xlabel('Efficiency (Contribution % per Solution)', fontsize=14)
+    ax.set_ylabel('Method', fontsize=14)
+    ax.set_title('Algorithm Efficiency: Contribution per Solution', fontsize=16, fontweight='bold')
+    ax.tick_params(axis='y', labelsize=12)
 
-    * {hq_counts['NSGA-III']} solutions achieve
-      Recall >= 0.95
-
-    {'=' * 32}
-    """
-    ax6.text(0.1, 0.5, conclusions, transform=ax6.transAxes, fontsize=11,
-             verticalalignment='center', fontfamily='monospace',
-             bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.8))
-
-    plt.suptitle('Figure 6: NSGA-III Performance Dashboard', fontsize=15, fontweight='bold', y=1.02)
+    plt.tight_layout()
     for fmt in ['pdf', 'png']:
-        fig.savefig(output_dir / f'fig6_summary_dashboard.{fmt}', dpi=300, bbox_inches='tight')
+        fig.savefig(output_dir / f'fig_efficiency.{fmt}', dpi=300, bbox_inches='tight')
     plt.close()
-    print("  ✓ Fig 6: Summary Dashboard")
+    print("  ✓ Efficiency Comparison")
 
 
-def generate_all_figures(pareto_path: str, metrics_dir: str = None, output_dir: str = './results/figures'):
+def fig_cost_at_threshold(pareto_df, baseline_dfs, output_dir):
+    """
+    不同Recall阈值下的最低成本对比
+    """
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    thresholds = [0.95, 0.90, 0.85, 0.80]
+    methods = ['NSGA-III'] + list(baseline_dfs.keys())
+
+    x = np.arange(len(thresholds))
+    width = 0.15
+
+    for i, method in enumerate(methods):
+        if method == 'NSGA-III':
+            df = pareto_df
+        else:
+            df = baseline_dfs[method]
+
+        if len(df) == 0:
+            continue
+
+        min_costs = []
+        for thresh in thresholds:
+            hq = df[df['detection_recall'] >= thresh]
+            if len(hq) > 0:
+                min_costs.append(hq['f1_total_cost_USD'].min() / 1e6)
+            else:
+                min_costs.append(np.nan)
+
+        color = COLORS.get(method, 'gray') if method != 'NSGA-III' else COLORS['NSGA-III']
+        bars = ax.bar(x + i * width, min_costs, width, label=method.title(), color=color, alpha=0.85)
+
+    ax.set_ylabel('Minimum Cost (Million USD)', fontsize=14)
+    ax.set_xlabel('Recall Threshold', fontsize=14)
+    ax.set_title('Minimum Cost at Different Quality Thresholds', fontsize=16, fontweight='bold')
+    ax.set_xticks(x + width * (len(methods) - 1) / 2)
+    ax.set_xticklabels([f'≥{t}' for t in thresholds], fontsize=12)
+    ax.legend(fontsize=10)
+
+    plt.tight_layout()
+    for fmt in ['pdf', 'png']:
+        fig.savefig(output_dir / f'fig_cost_threshold.{fmt}', dpi=300, bbox_inches='tight')
+    plt.close()
+    print("  ✓ Cost at Threshold")
+
+
+def generate_all_individual_figures(pareto_path: str, metrics_dir: str = None,
+                                    output_dir: str = './results/figures_individual'):
+    """生成所有单独图表"""
+
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -481,31 +564,49 @@ def generate_all_figures(pareto_path: str, metrics_dir: str = None, output_dir: 
         metrics_dir = Path(metrics_dir)
 
     print("=" * 60)
-    print("Generating Enhanced Publication Figures")
+    print("Generating Individual Publication Figures")
     print("=" * 60)
 
     pareto_df, baseline_dfs = load_data(pareto_path)
     print(f"Loaded: NSGA-III ({len(pareto_df)}), Baselines: {list(baseline_dfs.keys())}")
+    print()
 
-    fig1_enhanced_pareto_front(pareto_df, baseline_dfs, output_dir)
-    fig2_dominance_and_contribution(pareto_df, baseline_dfs, metrics_dir, output_dir)
-    fig3_quality_metrics(metrics_dir, output_dir)
-    fig4_high_quality_focus(pareto_df, baseline_dfs, output_dir)
-    fig5_statistical_significance(metrics_dir, output_dir)
-    fig6_summary_dashboard(pareto_df, baseline_dfs, metrics_dir, output_dir)
+    # 生成单独图表
+    fig_pareto_front_main(pareto_df, baseline_dfs, output_dir)
+    fig_pareto_front_zoomed(pareto_df, baseline_dfs, output_dir)
+    fig_dominance_coverage(metrics_dir, output_dir)
+    fig_contribution_pie(metrics_dir, output_dir)
+    fig_hypervolume_comparison(metrics_dir, output_dir)
+    fig_high_quality_count(pareto_df, baseline_dfs, output_dir)
+    fig_effect_size(metrics_dir, output_dir)
+    fig_efficiency_comparison(pareto_df, baseline_dfs, metrics_dir, output_dir)
+    fig_cost_at_threshold(pareto_df, baseline_dfs, output_dir)
 
+    print()
     print("=" * 60)
-    print(f"All figures saved to: {output_dir}")
+    print(f"✓ All {9} individual figures saved to: {output_dir}")
     print("=" * 60)
+    print("\nGenerated figures:")
+    print("  1. fig_pareto_front.pdf/png     - Main Pareto front")
+    print("  2. fig_pareto_zoomed.pdf/png    - High-quality region")
+    print("  3. fig_dominance.pdf/png        - Dominance coverage")
+    print("  4. fig_contribution.pdf/png     - Contribution pie chart")
+    print("  5. fig_hypervolume.pdf/png      - HV comparison")
+    print("  6. fig_hq_count.pdf/png         - High-quality count")
+    print("  7. fig_effect_size.pdf/png      - Cliff's delta")
+    print("  8. fig_efficiency.pdf/png       - Efficiency comparison")
+    print("  9. fig_cost_threshold.pdf/png   - Cost at thresholds")
 
 
 if __name__ == '__main__':
     import sys
 
     if len(sys.argv) < 2:
-        print("Usage: python visualization_enhanced.py <pareto_csv> [metrics_dir] [output_dir]")
+        print("Usage: python visualization_individual.py <pareto_csv> [metrics_dir] [output_dir]")
         sys.exit(1)
+
     pareto_path = sys.argv[1]
     metrics_dir = sys.argv[2] if len(sys.argv) > 2 else None
-    output_dir = sys.argv[3] if len(sys.argv) > 3 else './results/figures'
-    generate_all_figures(pareto_path, metrics_dir, output_dir)
+    output_dir = sys.argv[3] if len(sys.argv) > 3 else './results/figures_individual'
+
+    generate_all_individual_figures(pareto_path, metrics_dir, output_dir)
