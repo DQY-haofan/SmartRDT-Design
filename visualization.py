@@ -71,7 +71,7 @@ plt.rcParams.update({
 })
 
 
-class PublicationVisualizer:
+class Visualizer:
     """顶刊级可视化生成器"""
 
     def __init__(self, output_dir: Path = Path('./results/paper')):
@@ -1158,7 +1158,7 @@ def main():
             baseline_dfs[name] = pd.read_csv(baseline_file)
 
     # 生成可视化
-    visualizer = PublicationVisualizer(output_dir=args.output)
+    visualizer = Visualizer(output_dir=args.output)
     visualizer.generate_all(pareto_df, baseline_dfs)
 
     print(f"\n✓ All figures saved to: {args.output}/figures/")
