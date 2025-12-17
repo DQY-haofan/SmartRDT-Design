@@ -90,7 +90,7 @@ def fig1_enhanced_pareto_front(pareto_df, baseline_dfs, output_dir):
     ax1.plot(ps['f1_total_cost_USD'] / 1e6, ps['detection_recall'],
              'b-', linewidth=2.5, zorder=8, label='NSGA-III Pareto Front')
     ax1.scatter(ps['f1_total_cost_USD'] / 1e6, ps['detection_recall'],
-                s=100, c=COLORS['NSGA-III'], marker='★', zorder=10,
+                s=100, c=COLORS['NSGA-III'], marker='*', zorder=10,
                 edgecolors='white', linewidths=0.8, label=f'NSGA-III Solutions (n={len(pareto_df)})')
 
     # 标注高质量区域
@@ -118,7 +118,7 @@ def fig1_enhanced_pareto_front(pareto_df, baseline_dfs, output_dir):
                         alpha=0.3, s=25, c=COLORS.get(name, 'gray'), label=f'{name.title()} (n={len(hq)})')
 
     ax2.scatter(nsga_hq['f1_total_cost_USD'] / 1e6, nsga_hq['detection_recall'],
-                s=150, c=COLORS['NSGA-III'], marker='★', zorder=10,
+                s=150, c=COLORS['NSGA-III'], marker='*', zorder=10,
                 edgecolors='white', linewidths=1, label=f'NSGA-III (n={len(nsga_hq)})')
 
     # 连接NSGA-III点
@@ -366,7 +366,7 @@ def fig4_high_quality_focus(pareto_df, baseline_dfs, output_dir):
     # 前景: NSGA-III
     nsga_hq = pareto_df[pareto_df['detection_recall'] >= 0.90]
     ax3.scatter(nsga_hq['f1_total_cost_USD'] / 1e6, nsga_hq['detection_recall'],
-                s=120, c=COLORS['NSGA-III'], marker='★', zorder=10,
+                s=120, c=COLORS['NSGA-III'], marker='*', zorder=10,
                 edgecolors='white', linewidths=1, label='NSGA-III')
 
     ax3.axhline(y=0.95, color='red', linestyle='--', alpha=0.7)
@@ -517,7 +517,7 @@ def fig6_summary_dashboard(pareto_df, baseline_dfs, metrics_dir, output_dir):
     ps = pareto_df.sort_values('f1_total_cost_USD')
     ax1.plot(ps['f1_total_cost_USD'] / 1e6, ps['detection_recall'], 'b-', lw=2)
     ax1.scatter(ps['f1_total_cost_USD'] / 1e6, ps['detection_recall'],
-                s=80, c=COLORS['NSGA-III'], marker='★', zorder=10)
+                s=80, c=COLORS['NSGA-III'], marker='*', zorder=10)
 
     ax1.set_xlabel('Cost (M$)')
     ax1.set_ylabel('Recall')
