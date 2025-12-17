@@ -22,14 +22,14 @@ import pandas as pd
 def setup_logging(debug: bool = False, log_dir: Path = Path('./results/logs')) -> logging.Logger:
     """Setup logging configuration"""
     log_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Create log filename with timestamp
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     log_file = log_dir / f'rmtwin_optimization_{timestamp}.log'
-    
+
     # Configure logging
     log_level = logging.DEBUG if debug else logging.INFO
-    
+
     # Create formatters
     file_formatter = logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -38,35 +38,36 @@ def setup_logging(debug: bool = False, log_dir: Path = Path('./results/logs')) -
         '%(asctime)s - %(levelname)s - %(message)s',
         datefmt='%H:%M:%S'
     )
-    
+
     # Setup handlers
     file_handler = logging.FileHandler(log_file)
     file_handler.setLevel(log_level)
     file_handler.setFormatter(file_formatter)
-    
+
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)  # Console always INFO or higher
     console_handler.setFormatter(console_formatter)
-    
+
     # Configure root logger
     root_logger = logging.getLogger()
     root_logger.setLevel(log_level)
-    
+
     # 清除已有handlers避免重复
     root_logger.handlers.clear()
     root_logger.addHandler(file_handler)
     root_logger.addHandler(console_handler)
-    
+
     # Log startup info
     logger = logging.getLogger(__name__)
     logger.info(f"Logging initialized. Log file: {log_file}")
     logger.info(f"Debug mode: {debug}")
-    
+
     return logger
 
 
 class NumpyEncoder(json.JSONEncoder):
     """Custom JSON encoder for NumPy data types"""
+
     def default(self, obj):
         if isinstance(obj, (np.integer, np.int64, np.int32)):
             return int(obj)
@@ -84,14 +85,14 @@ class NumpyEncoder(json.JSONEncoder):
 def save_results_summary(results: Dict, config) -> None:
     """
     Save comprehensive results summary with empty DataFrame handling
-    
+
     修复版: 正确判断可行解状态，避免矛盾报告
     """
     logger = logging.getLogger(__name__)
-    
+
     summary_path = config.output_dir / 'optimization_summary.json'
     report_path = config.output_dir / 'optimization_report.txt'
-    
+
     # Prepare summary data
     summary = {
         'timestamp': datetime.now().isoformat(),
@@ -109,19 +110,19 @@ def save_results_summary(results: Dict, config) -> None:
         },
         'results': {}
     }
-    
+
     # 跟踪实际可行解数量
     nsga_feasible_count = 0
     baseline_feasible_count = 0
-    
+
     # Process NSGA-III results if available
     if 'nsga3' in results:
         nsga3_df = results['nsga3']['dataframe']
-        
+
         if nsga3_df is not None and len(nsga3_df) > 0 and 'f1_total_cost_USD' in nsga3_df.columns:
             # Pareto解默认都是可行的
             nsga_feasible_count = len(nsga3_df)
-            
+
             summary['results']['nsga3'] = {
                 'total_solutions': len(nsga3_df),
                 'feasible_solutions': nsga_feasible_count,  # 显式添加feasible_solutions
@@ -139,7 +140,7 @@ def save_results_summary(results: Dict, config) -> None:
                     }
                 }
             }
-            
+
             # Add other objectives if available
             if 'f5_carbon_emissions_kgCO2e_year' in nsga3_df.columns:
                 summary['results']['nsga3']['objectives']['carbon'] = {
@@ -147,14 +148,14 @@ def save_results_summary(results: Dict, config) -> None:
                     'max': float(nsga3_df['f5_carbon_emissions_kgCO2e_year'].max()),
                     'mean': float(nsga3_df['f5_carbon_emissions_kgCO2e_year'].mean())
                 }
-            
+
             if 'f3_latency_seconds' in nsga3_df.columns:
                 summary['results']['nsga3']['objectives']['latency'] = {
                     'min': float(nsga3_df['f3_latency_seconds'].min()),
                     'max': float(nsga3_df['f3_latency_seconds'].max()),
                     'mean': float(nsga3_df['f3_latency_seconds'].mean())
                 }
-            
+
             if 'f4_traffic_disruption_hours' in nsga3_df.columns:
                 summary['results']['nsga3']['objectives']['disruption'] = {
                     'min': float(nsga3_df['f4_traffic_disruption_hours'].min()),
@@ -168,11 +169,11 @@ def save_results_summary(results: Dict, config) -> None:
                 'computation_time': results['nsga3'].get('time', 0),
                 'message': 'No Pareto solutions found'
             }
-    
+
     # Process baseline results if available
     if 'baselines' in results and results['baselines'].get('dataframes'):
         summary['results']['baselines'] = {}
-        
+
         for method, df in results['baselines']['dataframes'].items():
             if df is not None and len(df) > 0:
                 if 'is_feasible' in df.columns:
@@ -181,15 +182,18 @@ def save_results_summary(results: Dict, config) -> None:
                 else:
                     feasible = df
                     n_feasible = len(df)
-                
+
                 baseline_feasible_count += n_feasible
-                
+
                 summary['results']['baselines'][method] = {
                     'total_solutions': len(df),
                     'feasible_solutions': n_feasible,
-                    'best_cost': float(feasible['f1_total_cost_USD'].min()) if n_feasible > 0 and 'f1_total_cost_USD' in feasible.columns else None,
-                    'best_recall': float(feasible['detection_recall'].max()) if n_feasible > 0 and 'detection_recall' in feasible.columns else None,
-                    'min_carbon': float(feasible['f5_carbon_emissions_kgCO2e_year'].min()) if n_feasible > 0 and 'f5_carbon_emissions_kgCO2e_year' in feasible.columns else None,
+                    'best_cost': float(feasible[
+                                           'f1_total_cost_USD'].min()) if n_feasible > 0 and 'f1_total_cost_USD' in feasible.columns else None,
+                    'best_recall': float(feasible[
+                                             'detection_recall'].max()) if n_feasible > 0 and 'detection_recall' in feasible.columns else None,
+                    'min_carbon': float(feasible[
+                                            'f5_carbon_emissions_kgCO2e_year'].min()) if n_feasible > 0 and 'f5_carbon_emissions_kgCO2e_year' in feasible.columns else None,
                 }
             else:
                 summary['results']['baselines'][method] = {
@@ -197,7 +201,7 @@ def save_results_summary(results: Dict, config) -> None:
                     'feasible_solutions': 0,
                     'message': 'No solutions generated'
                 }
-    
+
     # 添加汇总统计
     summary['summary'] = {
         'nsga_feasible': nsga_feasible_count,
@@ -205,26 +209,26 @@ def save_results_summary(results: Dict, config) -> None:
         'total_feasible': nsga_feasible_count + baseline_feasible_count,
         'has_feasible_solutions': (nsga_feasible_count + baseline_feasible_count) > 0
     }
-    
+
     # Save JSON summary
     with open(summary_path, 'w') as f:
         json.dump(summary, f, indent=2, cls=NumpyEncoder)
-    
+
     # Generate text report (使用修复版)
     report = generate_text_report_fixed(summary, config, nsga_feasible_count, baseline_feasible_count)
     with open(report_path, 'w', encoding='utf-8') as f:
         f.write(report)
-    
+
     logger.info(f"Saved optimization summary to {summary_path}")
     logger.info(f"Saved optimization report to {report_path}")
 
 
-def generate_text_report_fixed(summary: Dict, config, 
-                               nsga_feasible: int, 
+def generate_text_report_fixed(summary: Dict, config,
+                               nsga_feasible: int,
                                baseline_feasible: int) -> str:
     """
     Generate human-readable text report
-    
+
     修复版: 正确判断是否显示troubleshooting
     - 只有当NSGA和所有baseline都没有可行解时才显示
     """
@@ -236,7 +240,7 @@ def generate_text_report_fixed(summary: Dict, config,
     report.append(f"Generated: {summary['timestamp']}")
     report.append(f"Output Directory: {config.output_dir}")
     report.append("")
-    
+
     # Configuration section
     report.append("CONFIGURATION")
     report.append("-" * 40)
@@ -248,7 +252,7 @@ def generate_text_report_fixed(summary: Dict, config,
     report.append(f"Population Size: {conf['population_size']}")
     report.append(f"Generations: {conf['generations']}")
     report.append("")
-    
+
     # Constraints section
     report.append("CONSTRAINTS")
     report.append("-" * 40)
@@ -257,58 +261,58 @@ def generate_text_report_fixed(summary: Dict, config,
     report.append(f"Max Carbon: {conf.get('max_carbon', 200000)} kgCO2e/year")
     report.append(f"Min MTBF: {conf.get('min_mtbf', 2000)} hours")
     report.append("")
-    
+
     # Results section
     report.append("OPTIMIZATION RESULTS")
     report.append("-" * 40)
-    
+
     # NSGA-III results
     if 'nsga3' in summary.get('results', {}):
         nsga3 = summary['results']['nsga3']
         report.append("NSGA-III Pareto Front:")
         report.append(f"  Total Solutions: {nsga3.get('total_solutions', 0)}")
         report.append(f"  Feasible Solutions: {nsga3.get('feasible_solutions', nsga3.get('total_solutions', 0))}")
-        
+
         if 'objectives' in nsga3:
             report.append("  Objective Ranges:")
             obj = nsga3['objectives']
-            
+
             if 'cost' in obj:
                 report.append(f"    Cost: ${obj['cost']['min']:,.0f} - ${obj['cost']['max']:,.0f} "
-                             f"(avg: ${obj['cost']['mean']:,.0f})")
-            
+                              f"(avg: ${obj['cost']['mean']:,.0f})")
+
             if 'recall' in obj:
                 report.append(f"    Recall: {obj['recall']['min']:.4f} - {obj['recall']['max']:.4f} "
-                             f"(avg: {obj['recall']['mean']:.4f})")
-            
+                              f"(avg: {obj['recall']['mean']:.4f})")
+
             if 'carbon' in obj:
                 report.append(f"    Carbon: {obj['carbon']['min']:,.0f} - {obj['carbon']['max']:,.0f} "
-                             f"kgCO2e/year (avg: {obj['carbon']['mean']:,.0f})")
-            
+                              f"kgCO2e/year (avg: {obj['carbon']['mean']:,.0f})")
+
             if 'latency' in obj:
                 report.append(f"    Latency: {obj['latency']['min']:.1f} - {obj['latency']['max']:.1f} s "
-                             f"(avg: {obj['latency']['mean']:.1f})")
-            
+                              f"(avg: {obj['latency']['mean']:.1f})")
+
             if 'disruption' in obj:
                 report.append(f"    Disruption: {obj['disruption']['min']:.1f} - {obj['disruption']['max']:.1f} h "
-                             f"(avg: {obj['disruption']['mean']:.1f})")
-        
+                              f"(avg: {obj['disruption']['mean']:.1f})")
+
         if 'computation_time' in nsga3:
             report.append(f"  Computation Time: {nsga3['computation_time']:.2f} s")
-        
+
         if 'message' in nsga3:
             report.append(f"  Status: {nsga3['message']}")
-        
+
         report.append("")
-    
+
     # Baseline results
     if 'baselines' in summary.get('results', {}):
         report.append("Baseline Methods:")
         for method, data in summary['results']['baselines'].items():
             report.append(f"  {method.title()}:")
             report.append(f"    Total: {data.get('total_solutions', 0)}, "
-                         f"Feasible: {data.get('feasible_solutions', 0)}")
-            
+                          f"Feasible: {data.get('feasible_solutions', 0)}")
+
             if data.get('best_cost') is not None:
                 report.append(f"    Best Cost: ${data['best_cost']:,.0f}")
             if data.get('best_recall') is not None:
@@ -318,7 +322,7 @@ def generate_text_report_fixed(summary: Dict, config,
             if 'message' in data:
                 report.append(f"    Status: {data['message']}")
         report.append("")
-    
+
     # Summary section
     report.append("SUMMARY")
     report.append("-" * 40)
@@ -326,10 +330,10 @@ def generate_text_report_fixed(summary: Dict, config,
     report.append(f"Baseline Feasible Solutions: {baseline_feasible}")
     report.append(f"Total Feasible Solutions: {nsga_feasible + baseline_feasible}")
     report.append("")
-    
+
     # 关键修复: 只有在真正没有可行解时才显示troubleshooting
     total_feasible = nsga_feasible + baseline_feasible
-    
+
     if total_feasible == 0:
         report.append("TROUBLESHOOTING")
         report.append("-" * 40)
@@ -352,10 +356,10 @@ def generate_text_report_fixed(summary: Dict, config,
         # 有可行解时显示成功信息
         report.append("STATUS: Optimization completed successfully with feasible solutions.")
         report.append("")
-    
+
     report.append("=" * 80)
     report.append("END OF REPORT")
-    
+
     return '\n'.join(report)
 
 
@@ -377,35 +381,35 @@ def calculate_hypervolume(F: np.ndarray, ref_point: np.ndarray) -> float:
 def calculate_metrics(F: np.ndarray) -> Dict[str, float]:
     """Calculate various performance metrics for a Pareto front"""
     metrics = {}
-    
+
     # Basic statistics
     metrics['n_solutions'] = len(F)
-    
+
     # Spread metrics
     for i in range(F.shape[1]):
-        metrics[f'obj{i+1}_range'] = float(F[:, i].max() - F[:, i].min())
-        metrics[f'obj{i+1}_std'] = float(F[:, i].std())
-    
+        metrics[f'obj{i + 1}_range'] = float(F[:, i].max() - F[:, i].min())
+        metrics[f'obj{i + 1}_std'] = float(F[:, i].std())
+
     # Coverage metrics
     metrics['hypervolume'] = calculate_hypervolume(
-        F, 
+        F,
         ref_point=np.array([2e7, 0.3, 200, 200, 50000, 1e-3])
     )
-    
+
     return metrics
 
 
 def create_optimization_info_file(config, output_dir: Path) -> None:
     """Create detailed optimization info file for debugging"""
     info_path = output_dir / 'optimization_info.txt'
-    
+
     with open(info_path, 'w') as f:
         f.write("RMTWIN OPTIMIZATION DETAILED INFORMATION\n")
         f.write("=" * 60 + "\n\n")
-        
+
         # Timestamp
         f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
-        
+
         # Configuration details
         f.write("CONFIGURATION PARAMETERS\n")
         f.write("-" * 30 + "\n")
@@ -416,7 +420,7 @@ def create_optimization_info_file(config, output_dir: Path) -> None:
         f.write(f"Carbon Intensity: {config.carbon_intensity_factor} kgCO2e/kWh\n")
         f.write(f"Scenario Type: {config.scenario_type}\n")
         f.write("\n")
-        
+
         # Constraints
         f.write("CONSTRAINTS\n")
         f.write("-" * 30 + "\n")
@@ -426,14 +430,14 @@ def create_optimization_info_file(config, output_dir: Path) -> None:
         f.write(f"Max Carbon: {getattr(config, 'max_carbon_emissions_kgCO2e_year', 200000)} kgCO2e/year\n")
         f.write(f"Min MTBF: {config.min_mtbf_hours:,.0f} hours\n")
         f.write("\n")
-    
+
     logging.info(f"Created optimization info file: {info_path}")
 
 
 def compare_solutions(sol1: pd.Series, sol2: pd.Series) -> Dict[str, float]:
     """Compare two solutions across all objectives"""
     comparison = {}
-    
+
     objectives = [
         ('Cost', 'f1_total_cost_USD', 'minimize'),
         ('Recall', 'detection_recall', 'maximize'),
@@ -442,24 +446,24 @@ def compare_solutions(sol1: pd.Series, sol2: pd.Series) -> Dict[str, float]:
         ('Carbon', 'f5_carbon_emissions_kgCO2e_year', 'minimize'),
         ('MTBF', 'system_MTBF_hours', 'maximize')
     ]
-    
+
     for name, col, direction in objectives:
         if col in sol1 and col in sol2:
             val1 = sol1[col]
             val2 = sol2[col]
-            
+
             if direction == 'minimize':
                 improvement = (val2 - val1) / val1 * 100 if val1 != 0 else 0
             else:
                 improvement = (val1 - val2) / val2 * 100 if val2 != 0 else 0
-            
+
             comparison[name] = {
                 'sol1': val1,
                 'sol2': val2,
                 'improvement_pct': improvement,
                 'better': 1 if improvement < 0 else 2 if improvement > 0 else 0
             }
-    
+
     return comparison
 
 
@@ -479,18 +483,20 @@ def format_solution_summary(solution: pd.Series) -> str:
     summary.append(f"  Latency: {solution.get('f3_latency_seconds', 0):.1f}s")
     summary.append(f"  Carbon: {solution.get('f5_carbon_emissions_kgCO2e_year', 0):,.0f} kgCO2e/year")
     summary.append(f"  MTBF: {solution.get('system_MTBF_hours', 0):,.0f} hours")
-    
+
     return '\n'.join(summary)
 
 
 def timer(func):
     """Decorator to time function execution"""
+
     def wrapper(*args, **kwargs):
         start = time.time()
         result = func(*args, **kwargs)
         end = time.time()
         logging.info(f"{func.__name__} took {end - start:.2f} seconds")
         return result
+
     return wrapper
 
 
@@ -502,7 +508,7 @@ def validate_data_files(config) -> bool:
         config.infrastructure_csv,
         config.cost_benefit_csv
     ]
-    
+
     all_exist = True
     for filepath in required_files:
         if not Path(filepath).exists():
@@ -510,7 +516,7 @@ def validate_data_files(config) -> bool:
             all_exist = False
         else:
             logging.info(f"Found data file: {filepath}")
-    
+
     return all_exist
 
 
@@ -523,11 +529,11 @@ def save_checkpoint(data: Dict, checkpoint_dir: Path, name: str):
     """Save optimization checkpoint"""
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     checkpoint_path = checkpoint_dir / f"{name}_checkpoint.pkl"
-    
+
     import pickle
     with open(checkpoint_path, 'wb') as f:
         pickle.dump(data, f)
-    
+
     logging.info(f"Saved checkpoint: {checkpoint_path}")
 
 
@@ -535,10 +541,10 @@ def load_checkpoint(checkpoint_path: Path) -> Optional[Dict]:
     """Load optimization checkpoint"""
     if not checkpoint_path.exists():
         return None
-    
+
     import pickle
     with open(checkpoint_path, 'rb') as f:
         data = pickle.load(f)
-    
+
     logging.info(f"Loaded checkpoint: {checkpoint_path}")
     return data
