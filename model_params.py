@@ -263,6 +263,7 @@ MODEL_PARAMS: Dict[str, Any] = {
         'Vehicle': 2.0,          # Flows with traffic
         'IoT': 0.1,              # Fixed sensor: minimal
         'FOS': 0.1,              # Fiber optic: minimal
+        'Camera': 1.0,           # Fixed camera: low disruption
         'default': 3.0
     },
     

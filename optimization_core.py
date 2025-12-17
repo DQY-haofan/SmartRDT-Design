@@ -84,9 +84,31 @@ class RMTwinProblem(Problem):
 class RMTwinOptimizer:
     """Main coordinator for 6-objective optimization"""
     
-    def __init__(self, ontology_graph, config):
+    # Default seed for reproducibility
+    DEFAULT_SEED = 42
+    
+    def __init__(self, ontology_graph, config, seed: int = None):
+        """
+        Initialize optimizer.
+        
+        Args:
+            ontology_graph: Populated ontology graph
+            config: ConfigManager instance
+            seed: Random seed for reproducibility. If None, uses config.random_seed
+                  or DEFAULT_SEED
+        """
         self.ontology_graph = ontology_graph
         self.config = config
+        
+        # Set seed: priority is explicit arg > config > default
+        if seed is not None:
+            self.seed = seed
+        elif hasattr(config, 'random_seed'):
+            self.seed = config.random_seed
+        else:
+            self.seed = self.DEFAULT_SEED
+        
+        logger.info(f"Optimizer initialized with seed={self.seed}")
         
         # Import evaluator
         from evaluation import EnhancedFitnessEvaluatorV3
@@ -149,17 +171,17 @@ class RMTwinOptimizer:
     def optimize(self) -> Tuple[pd.DataFrame, Dict]:
         """Run optimization and return results"""
         logger.info(f"Starting {self.algorithm.__class__.__name__} optimization, "
-                   f"{self.config.n_objectives} objectives...")
+                   f"{self.config.n_objectives} objectives, seed={self.seed}...")
         
         # Configure termination
         termination = get_termination("n_gen", self.config.n_generations)
         
-        # Run optimization
+        # Run optimization with configurable seed
         res = minimize(
             self.problem,
             self.algorithm,
             termination,
-            seed=42,
+            seed=self.seed,  # Use configurable seed instead of hardcoded 42
             save_history=True,
             verbose=True
         )

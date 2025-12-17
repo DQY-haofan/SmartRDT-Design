@@ -501,8 +501,12 @@ class EnhancedFitnessEvaluatorV3:
             accuracy_mm = self._query_property(config['sensor'], 'hasAccuracyRangeMM', 10)
             sensor_precision = max(0.5, 1.0 - accuracy_mm / 50.0)
         
-        # LOD bonus
+        # LOD bonus (geometric LOD)
         lod_bonus = rm['lod_bonus'].get(config['geo_lod'], 0.0)
+        
+        # Condition LOD bonus - affects defect detection quality
+        cond_lod_bonus_map = {'Micro': 0.3, 'Meso': 0.0, 'Macro': -0.2}
+        cond_lod_bonus = cond_lod_bonus_map.get(config['cond_lod'], 0.0)
         
         # Detection threshold effect
         tau = config['detection_threshold']
@@ -522,11 +526,12 @@ class EnhancedFitnessEvaluatorV3:
         elif 'HighEnd' in hardware_req and deploy_type != 'Cloud':
             hw_penalty = 0.8
         
-        # Sigmoid input
+        # Sigmoid input (now includes cond_lod_bonus)
         z = (rm['a0'] + 
              rm['a1'] * base_algo_recall + 
              rm['a2'] * sensor_precision + 
              lod_bonus + 
+             cond_lod_bonus +  # NEW: condition LOD affects recall
              data_rate_bonus -
              rm['a3'] * (tau - tau0) -
              hw_penalty)
@@ -1035,11 +1040,16 @@ class EnhancedFitnessEvaluatorV3:
             elif deploy_type not in ['Cloud', 'Hybrid']:
                 hw_penalty = 0.8
         
+        # Condition LOD bonus - MUST match _calculate_detection_performance
+        cond_lod_bonus_map = {'Micro': 0.3, 'Meso': 0.0, 'Macro': -0.2}
+        cond_lod_bonus = cond_lod_bonus_map.get(config['cond_lod'], 0.0)
+        
         # z calculation - MUST match _calculate_detection_performance exactly
         z = (rm['a0'] + 
              rm['a1'] * base_algo_recall +
              rm['a2'] * sensor_precision +
              lod_bonus +
+             cond_lod_bonus +  # NEW: condition LOD bonus
              data_rate_bonus -
              rm['a3'] * (tau - tau0) -
              hw_penalty)
@@ -1050,6 +1060,7 @@ class EnhancedFitnessEvaluatorV3:
             'base_algo_recall': base_algo_recall,
             'sensor_precision': sensor_precision,
             'lod_bonus': lod_bonus,
+            'cond_lod_bonus': cond_lod_bonus,  # NEW
             'data_rate_bonus': data_rate_bonus,
             'hw_penalty': hw_penalty,
             'tau': tau,

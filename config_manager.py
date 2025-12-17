@@ -78,6 +78,7 @@ class ConfigManager:
     crossover_prob: float = 0.9
     crossover_eta: float = 20
     mutation_eta: float = 20
+    random_seed: int = 42  # Seed for reproducibility across all methods
     
     # 基线参数
     n_random_samples: int = 500

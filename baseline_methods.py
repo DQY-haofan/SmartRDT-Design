@@ -26,10 +26,8 @@ logger = logging.getLogger(__name__)
 # Default random seed for reproducibility
 DEFAULT_SEED = 42
 
-
-def set_baseline_seed(seed: int = DEFAULT_SEED):
-    """Set random seed for reproducibility in baseline methods."""
-    np.random.seed(seed)
+# NOTE: Each baseline method creates its own np.random.default_rng(seed) 
+# to avoid affecting global random state. Do not use np.random.seed() globally.
 
 
 class BaselineMethod(ABC):
@@ -105,8 +103,8 @@ class RandomSearchBaseline(BaselineMethod):
     
     def optimize(self) -> pd.DataFrame:
         """Generate random solutions with smart initialization"""
-        # Set seed for reproducibility
-        np.random.seed(self.seed)
+        # Use local RNG for reproducibility without affecting global state
+        self.rng = np.random.default_rng(self.seed)
         
         n_samples = self.config.n_random_samples
         logger.info(f"Running Random Search with {n_samples} samples (seed={self.seed})...")
@@ -120,16 +118,16 @@ class RandomSearchBaseline(BaselineMethod):
         for i in range(n_samples):
             if i < len(reference_configs):
                 x = reference_configs[i]
-            elif feasible_found and np.random.random() < 0.4:
+            elif feasible_found and self.rng.random() < 0.4:
                 # 40% chance to mutate from a feasible solution
-                base_x = feasible_found[np.random.randint(len(feasible_found))]
+                base_x = feasible_found[self.rng.integers(len(feasible_found))]
                 x = self._mutate_solution(base_x, sigma=0.1)
-            elif np.random.random() < 0.6:
+            elif self.rng.random() < 0.6:
                 # 60% smart random
                 x = self._generate_smart_random_solution()
             else:
                 # Pure random exploration
-                x = np.random.rand(11)
+                x = self.rng.random(11)
             
             # Evaluate
             is_feasible, objectives, constraints = self._check_feasibility(x)
@@ -203,9 +201,10 @@ class RandomSearchBaseline(BaselineMethod):
             0.18    # ~66 day cycle
         ]))
         
-        # Generate mutations
+        # Generate mutations (use self.rng if available, else create temp rng)
+        rng = getattr(self, 'rng', np.random.default_rng(self.seed))
         while len(configs) < 15:
-            base = configs[np.random.randint(min(3, len(configs)))]
+            base = configs[rng.integers(min(3, len(configs)))]
             mutated = self._mutate_solution(base, sigma=0.08)
             configs.append(mutated)
         
@@ -214,49 +213,51 @@ class RandomSearchBaseline(BaselineMethod):
     def _generate_smart_random_solution(self) -> np.ndarray:
         """Generate solution biased toward feasibility"""
         x = np.zeros(11)
+        rng = self.rng  # Use instance RNG
         
         # Sensor: bias toward cheaper options
-        x[0] = np.random.beta(3, 1.5)  # Skewed toward higher indices (cheaper)
+        x[0] = rng.beta(3, 1.5)  # Skewed toward higher indices (cheaper)
         
         # Data rate: moderate
-        x[1] = np.random.uniform(0.2, 0.6)
+        x[1] = rng.uniform(0.2, 0.6)
         
         # LOD: prefer Meso
-        x[2] = np.random.choice([0.33, 0.5, 0.67], p=[0.15, 0.7, 0.15])
+        x[2] = rng.choice([0.33, 0.5, 0.67], p=[0.15, 0.7, 0.15])
         x[3] = x[2]
         
         # Algorithm: any
-        x[4] = np.random.random()
+        x[4] = rng.random()
         
         # Threshold: moderate to high
-        x[5] = np.random.uniform(0.45, 0.75)
+        x[5] = rng.uniform(0.45, 0.75)
         
         # Storage: prefer cloud
-        x[6] = np.random.choice([0.0, 0.3, 0.7], p=[0.7, 0.2, 0.1])
+        x[6] = rng.choice([0.0, 0.3, 0.7], p=[0.7, 0.2, 0.1])
         
         # Communication: moderate
-        x[7] = np.random.uniform(0.3, 0.7)
+        x[7] = rng.uniform(0.3, 0.7)
         
         # Deployment: prefer cloud
-        x[8] = np.random.uniform(0.6, 1.0)
+        x[8] = rng.uniform(0.6, 1.0)
         
         # Crew: small to medium
-        x[9] = np.random.uniform(0.1, 0.5)
+        x[9] = rng.uniform(0.1, 0.5)
         
         # Cycle: monthly to quarterly
-        x[10] = np.random.uniform(0.08, 0.25)
+        x[10] = rng.uniform(0.08, 0.25)
         
         return x
     
     def _mutate_solution(self, x: np.ndarray, sigma: float = 0.1) -> np.ndarray:
         """Mutate solution with Gaussian noise"""
         mutated = x.copy()
+        rng = getattr(self, 'rng', np.random.default_rng(self.seed))
         for i in range(len(mutated)):
             if i in [2, 3]:  # LOD - discrete
-                if np.random.random() < 0.1:
-                    mutated[i] = np.random.choice([0.33, 0.5, 0.67])
+                if rng.random() < 0.1:
+                    mutated[i] = rng.choice([0.33, 0.5, 0.67])
             else:
-                mutated[i] += np.random.normal(0, sigma)
+                mutated[i] += rng.normal(0, sigma)
         return np.clip(mutated, 0, 1)
 
 
@@ -265,8 +266,8 @@ class GridSearchBaseline(BaselineMethod):
     
     def optimize(self) -> pd.DataFrame:
         """Run grid search on key parameters"""
-        # Set seed for reproducibility (for smart variations)
-        np.random.seed(self.seed + 1)  # Different seed from random search
+        # Use local RNG for smart variations
+        self.rng = np.random.default_rng(self.seed + 1)
         
         logger.info(f"Running Grid Search baseline (seed={self.seed + 1})...")
         
@@ -335,6 +336,8 @@ class GridSearchBaseline(BaselineMethod):
     
     def _add_smart_variations(self, remaining: int):
         """Add variations around good solutions"""
+        rng = getattr(self, 'rng', np.random.default_rng(self.seed + 1))
+        
         # Find feasible solutions
         feasible = [r for r in self.results if r['is_feasible']]
         
@@ -342,16 +345,16 @@ class GridSearchBaseline(BaselineMethod):
             # Generate conservative defaults if no feasible found
             for i in range(min(remaining, 50)):
                 x = np.array([
-                    0.95 + np.random.uniform(-0.05, 0.05),
-                    0.3 + np.random.uniform(-0.1, 0.1),
+                    0.95 + rng.uniform(-0.05, 0.05),
+                    0.3 + rng.uniform(-0.1, 0.1),
                     0.5, 0.5,
-                    0.8 + np.random.uniform(-0.1, 0.1),
-                    0.6 + np.random.uniform(-0.1, 0.1),
+                    0.8 + rng.uniform(-0.1, 0.1),
+                    0.6 + rng.uniform(-0.1, 0.1),
                     0.0,
-                    0.4 + np.random.uniform(-0.1, 0.2),
+                    0.4 + rng.uniform(-0.1, 0.2),
                     0.95,
-                    0.25 + np.random.uniform(-0.05, 0.1),
-                    0.2 + np.random.uniform(-0.05, 0.1)
+                    0.25 + rng.uniform(-0.05, 0.1),
+                    0.2 + rng.uniform(-0.05, 0.1)
                 ])
                 x = np.clip(x, 0, 1)
                 
@@ -366,8 +369,8 @@ class WeightedSumBaseline(BaselineMethod):
     
     def optimize(self) -> pd.DataFrame:
         """Run weighted sum optimization"""
-        # Set seed for reproducibility
-        np.random.seed(self.seed + 2)  # Different seed from other methods
+        # Use local RNG for reproducibility without affecting global state
+        self.rng = np.random.default_rng(self.seed + 2)
         
         n_weights = self.config.weight_combinations
         logger.info(f"Running Weighted Sum with {n_weights} weight sets (seed={self.seed + 2})...")
@@ -432,6 +435,7 @@ class WeightedSumBaseline(BaselineMethod):
     def _generate_weight_sets(self, n_sets: int) -> np.ndarray:
         """Generate diverse weight combinations"""
         weights = []
+        rng = self.rng
         
         # Uniform weights
         weights.append(np.ones(6) / 6)
@@ -456,7 +460,7 @@ class WeightedSumBaseline(BaselineMethod):
         
         # Random
         while len(weights) < n_sets:
-            w = np.random.rand(6)
+            w = rng.random(6)
             w = w / w.sum()
             weights.append(w)
         
@@ -464,29 +468,31 @@ class WeightedSumBaseline(BaselineMethod):
     
     def _generate_initial_point(self) -> np.ndarray:
         """Generate good initial point"""
+        rng = self.rng
         x = np.array([
-            np.random.uniform(0.8, 1.0),  # Cheap sensor
-            np.random.uniform(0.3, 0.5),
+            rng.uniform(0.8, 1.0),  # Cheap sensor
+            rng.uniform(0.3, 0.5),
             0.5, 0.5,
-            np.random.uniform(0.5, 0.9),
-            np.random.uniform(0.5, 0.7),
+            rng.uniform(0.5, 0.9),
+            rng.uniform(0.5, 0.7),
             0.0,
-            np.random.uniform(0.4, 0.6),
-            np.random.uniform(0.7, 1.0),
-            np.random.uniform(0.2, 0.4),
-            np.random.uniform(0.1, 0.2)
+            rng.uniform(0.4, 0.6),
+            rng.uniform(0.7, 1.0),
+            rng.uniform(0.2, 0.4),
+            rng.uniform(0.1, 0.2)
         ])
         return x
     
     def _local_search_step(self, x: np.ndarray) -> np.ndarray:
         """Take local search step"""
+        rng = self.rng
         x_new = x.copy()
         for i in range(len(x)):
-            if np.random.random() < 0.2:
+            if rng.random() < 0.2:
                 if i in [2, 3]:
-                    x_new[i] = np.random.choice([0.33, 0.5, 0.67])
+                    x_new[i] = rng.choice([0.33, 0.5, 0.67])
                 else:
-                    x_new[i] = np.clip(x[i] + np.random.normal(0, 0.08), 0, 1)
+                    x_new[i] = np.clip(x[i] + rng.normal(0, 0.08), 0, 1)
         return x_new
     
     def _normalize_objectives(self, obj: np.ndarray) -> np.ndarray:
@@ -517,8 +523,8 @@ class ExpertHeuristicBaseline(BaselineMethod):
     
     def optimize(self) -> pd.DataFrame:
         """Generate expert configurations with feasibility guarantee"""
-        # Set seed for reproducibility (for variations in Phase 4)
-        np.random.seed(self.seed + 3)  # Different seed from other methods
+        # Use local RNG for variations in Phase 4
+        self.rng = np.random.default_rng(self.seed + 3)
         
         logger.info(f"Running Expert Heuristic baseline (seed={self.seed + 3})...")
         
@@ -913,11 +919,12 @@ class ExpertHeuristicBaseline(BaselineMethod):
     
     def _add_variation(self, config: np.ndarray, sigma: float) -> np.ndarray:
         """Add small variation to configuration"""
+        rng = getattr(self, 'rng', np.random.default_rng(self.seed + 3))
         varied = config.copy()
         for i in range(len(varied)):
             if i in [2, 3]:  # LOD - keep stable
                 continue
-            varied[i] = np.clip(varied[i] + np.random.normal(0, sigma), 0, 1)
+            varied[i] = np.clip(varied[i] + rng.normal(0, sigma), 0, 1)
         return varied
 
 
