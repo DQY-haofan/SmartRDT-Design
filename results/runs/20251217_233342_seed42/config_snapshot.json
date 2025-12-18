@@ -1,0 +1,18 @@
+{
+  "timestamp": "2025-12-17T23:33:42.658802",
+  "seed": 42,
+  "population_size": 2000,
+  "n_generations": 100,
+  "n_objectives": 6,
+  "budget_cap_usd": 10000000,
+  "min_recall_threshold": 0.8,
+  "max_latency_seconds": 200.0,
+  "max_disruption_hours": 400.0,
+  "max_carbon_emissions_kgCO2e_year": 200000,
+  "min_mtbf_hours": 1000,
+  "road_network_length_km": 200.0,
+  "planning_horizon_years": 10,
+  "n_random_samples": 3000,
+  "grid_resolution": 5,
+  "weight_combinations": 100
+}

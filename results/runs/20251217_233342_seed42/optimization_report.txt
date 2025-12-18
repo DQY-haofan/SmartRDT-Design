@@ -1,0 +1,68 @@
+================================================================================
+RMTWIN MULTI-OBJECTIVE OPTIMIZATION REPORT
+================================================================================
+
+Generated: 2025-12-17T23:38:40.278920
+Output Directory: results/runs/20251217_233342_seed42
+
+CONFIGURATION
+----------------------------------------
+Road Network Length: 200.0 km
+Planning Horizon: 10 years
+Budget Cap: $10,000,000
+Number of Objectives: 6
+Population Size: 2000
+Generations: 100
+
+CONSTRAINTS
+----------------------------------------
+Min Recall: 0.8
+Max Latency: 200.0 s
+Max Carbon: 200000 kgCO2e/year
+Min MTBF: 1000 hours
+
+OPTIMIZATION RESULTS
+----------------------------------------
+NSGA-III Pareto Front:
+  Total Solutions: 23
+  Feasible Solutions: 23
+  Objective Ranges:
+    Cost: $191,927 - $4,436,288 (avg: $1,445,734)
+    Recall: 0.8223 - 0.9600 (avg: 0.9219)
+    Carbon: 100 - 2,125 kgCO2e/year (avg: 210)
+    Latency: 7.0 - 181.1 s (avg: 59.8)
+    Disruption: 0.2 - 6.3 h (avg: 1.1)
+  Computation Time: 269.90 s
+
+Baseline Methods:
+  Random:
+    Total: 3000, Feasible: 798
+    Best Cost: $265,272
+    Best Recall: 0.9600
+    Min Carbon: 100 kgCO2e/year
+  Grid:
+    Total: 192, Feasible: 48
+    Best Cost: $3,487,966
+    Best Recall: 0.9443
+    Min Carbon: 163 kgCO2e/year
+  Weighted:
+    Total: 100, Feasible: 100
+    Best Cost: $504,711
+    Best Recall: 0.9600
+    Min Carbon: 100 kgCO2e/year
+  Expert:
+    Total: 25, Feasible: 1
+    Best Cost: $5,213,690
+    Best Recall: 0.9456
+    Min Carbon: 166 kgCO2e/year
+
+SUMMARY
+----------------------------------------
+NSGA-III Feasible Solutions: 23
+Baseline Feasible Solutions: 947
+Total Feasible Solutions: 970
+
+STATUS: Optimization completed successfully with feasible solutions.
+
+================================================================================
+END OF REPORT
