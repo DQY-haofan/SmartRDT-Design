@@ -107,41 +107,58 @@ def setup_logging(run_dir: Path, debug: bool = False):
 
 
 def build_ontology(ontology: 'OntologyManager') -> None:
-    """构建本体（兼容不同的方法名）"""
-    # 尝试不同的方法名（按优先级排序）
-    method_names = [
-        'populate_from_csv_files',  # 实际使用的方法名
-        'populate_from_csv',
-        'build_from_csv',
-        'load_from_csv',
-        'populate',
-        'build'
-    ]
+    """构建本体（兼容不同的方法名和文件格式）"""
+    from pathlib import Path
 
-    for method_name in method_names:
-        if hasattr(ontology, method_name):
-            method = getattr(ontology, method_name)
-            try:
-                method()
-                logger.info(f"本体构建成功 (使用 {method_name})")
-                return
-            except TypeError as e:
-                # 方法可能需要参数
-                try:
-                    method('data')
-                    logger.info(f"本体构建成功 (使用 {method_name}('data'))")
-                    return
-                except:
-                    logger.debug(f"{method_name} 调用失败: {e}")
-                    continue
-            except Exception as e:
-                logger.debug(f"{method_name} 调用失败: {e}")
-                continue
+    # TXT文件路径（实际使用的格式）
+    txt_files = {
+        'sensor_csv': Path('sensors_data.txt'),
+        'algorithm_csv': Path('algorithms_data.txt'),
+        'infrastructure_csv': Path('infrastructure_data.txt'),
+        'cost_benefit_csv': Path('cost_benefit_data.txt'),
+    }
 
-    # 如果都失败，抛出错误
-    available_methods = [m for m in dir(ontology) if not m.startswith('_')]
-    raise AttributeError(f"OntologyManager没有可用的构建方法。可用方法: {available_methods}")
+    # CSV文件路径（备选）
+    csv_files = {
+        'sensor_csv': Path('data/sensor_systems.csv'),
+        'algorithm_csv': Path('data/algorithms.csv'),
+        'infrastructure_csv': Path('data/infrastructure.csv'),
+        'cost_benefit_csv': Path('data/cost_benefit.csv'),
+    }
 
+    # 确定使用哪组文件
+    if all(f.exists() for f in txt_files.values()):
+        files_to_use = txt_files
+        logger.info("使用TXT数据文件")
+    elif all(f.exists() for f in csv_files.values()):
+        files_to_use = csv_files
+        logger.info("使用CSV数据文件")
+    else:
+        files_to_use = None
+        logger.warning("数据文件不完整")
+        # 列出找到的文件
+        import glob
+        found_files = glob.glob('*.txt') + glob.glob('*.csv') + glob.glob('data/*.csv')
+        logger.info(f"找到的数据文件: {found_files}")
+
+    # 使用 populate_from_csv_files 方法
+    if hasattr(ontology, 'populate_from_csv_files') and files_to_use:
+        try:
+            ontology.populate_from_csv_files(
+                sensor_csv=str(files_to_use['sensor_csv']),
+                algorithm_csv=str(files_to_use['algorithm_csv']),
+                infrastructure_csv=str(files_to_use['infrastructure_csv']),
+                cost_benefit_csv=str(files_to_use['cost_benefit_csv'])
+            )
+            logger.info("本体构建成功")
+            return
+        except Exception as e:
+            logger.error(f"本体构建失败: {e}")
+            raise
+
+    # 基础本体已在 __init__ 中创建
+    logger.warning("使用基础本体结构（无CSV数据）")
+    
 
 def save_ontology(ontology: 'OntologyManager', path: str) -> None:
     """保存本体（兼容不同的方法名）"""
@@ -165,7 +182,7 @@ def save_ontology(ontology: 'OntologyManager', path: str) -> None:
                 continue
 
     logger.warning("无法保存本体文件")
-    
+
 def run_optimization(
         config: 'ConfigManager',
         ontology: 'OntologyManager',
