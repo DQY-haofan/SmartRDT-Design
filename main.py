@@ -21,9 +21,9 @@ import pandas as pd
 # 本地模块导入
 from config_manager import ConfigManager
 from ontology_manager import OntologyManager
-from optimizer import NSGAIIIOptimizer
+from optimization_core import RMTwinOptimizer
 from baseline_methods import BaselineRunner
-from evaluation import EnhancedFitnessEvaluatorV3
+from evaluation import EnhancedFitnessEvaluator
 from compute_metrics import UnifiedMetricsCalculator
 
 # 设置日志
