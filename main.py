@@ -363,14 +363,11 @@ def main():
             main_logger.info("\nStep 6: Generating visualizations...")
 
             visualizer = Visualizer(run_dir)
-            visualizer.create_all_figures(
-                pareto_results=pareto_df,
-                baseline_results=baseline_dfs if baseline_dfs else None
+            visualizer.generate_all(
+                pareto_df=pareto_df,
+                baseline_dfs=baseline_dfs if baseline_dfs else {},
+                config=None
             )
-
-            if baseline_dfs:
-                main_logger.info("Generating enhanced baseline comparison...")
-                visualizer.create_enhanced_baseline_comparison(pareto_df, baseline_dfs)
 
             main_logger.info("Visualizations complete")
         elif len(pareto_df) == 0:
