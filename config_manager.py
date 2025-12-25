@@ -43,8 +43,9 @@ class ConfigManager:
     max_latency_seconds: float = 500.0  # 从180增加到300秒
     max_disruption_hours: float = 300.0  # 从100增加到300
     max_energy_kwh_year: float = 200_000  # 从50k增加到150k
-    min_mtbf_hours: float = 1_500  # 从5000降低到2000（约3个月）
+    min_mtbf_hours: float = 1_000  # 从5000降低到2000（约3个月）
     max_carbon_emissions_kgCO2e_year: float = 300_000  # 增加到200k
+    max_inspection_cycle_days: int = 180
 
 
 

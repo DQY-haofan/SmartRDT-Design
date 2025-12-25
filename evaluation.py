@@ -311,7 +311,8 @@ class EnhancedFitnessEvaluatorV3:
             self.config.min_recall_threshold - recall,       # Recall constraint
             f1 - self.config.budget_cap_usd,                # Budget constraint
             f5 - self.config.max_carbon_emissions_kgCO2e_year,  # Carbon constraint
-            self.config.min_mtbf_hours - mtbf               # Reliability constraint
+            self.config.min_mtbf_hours - mtbf  ,              # Reliability constraint
+            config['inspection_cycle'] - max_insp_cycle
         ])
         
         return objectives, constraints
@@ -889,7 +890,7 @@ class EnhancedFitnessEvaluatorV3:
         
         total_emissions = electricity_emissions + vehicle_emissions_kg + annual_mfg_emissions
         
-  
+
 
         # 修改后：降低或移除下限
         total_emissions = np.clip(total_emissions, 10, 100000)  # 或完全移除clip

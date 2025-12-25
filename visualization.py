@@ -119,10 +119,10 @@ class Visualizer:
         # ===== 补充图表 =====
 
         # Fig S1: 完整Pareto前沿投影矩阵
-        self.figS1_pareto_projection_matrix(pareto_df)
+        self.figS1_pareto_projection_matrix(pareto_df, baseline_dfs)
 
         # Fig S2: 敏感性分析
-        self.figS2_sensitivity_analysis(pareto_df)
+        self.figS2_sensitivity_analysis(pareto_df, baseline_dfs)
 
         # ===== 表格 =====
         self.table1_method_comparison(pareto_df, baseline_dfs)
@@ -915,91 +915,303 @@ class Visualizer:
         self._save_fig(fig, 'fig8_convergence_analysis')
         plt.close(fig)
 
-    def figS1_pareto_projection_matrix(self, pareto_df: pd.DataFrame):
-        """补充图S1: 完整的Pareto前沿投影矩阵"""
-        objectives = [
-            ('f1_total_cost_USD', 'Cost ($M)', 1e6),
-            ('detection_recall', 'Recall', 1),
-            ('f3_latency_seconds', 'Latency (s)', 1),
-            ('f5_carbon_emissions_kgCO2e_year', 'Carbon (kg)', 1),
+    def figS1_pareto_projection_matrix(self, pareto_df: pd.DataFrame,
+                                       baseline_dfs: Dict[str, pd.DataFrame] = None):
+        """
+        补充图S1: Pareto前沿投影矩阵 (改进版)
+
+        改进点:
+        - 紧凑下三角布局，无空白
+        - Baseline灰点背景增加信息密度
+        - 对角线显示直方图
+        - constrained_layout确保紧凑
+        """
+        # 目标列定义
+        cols = [
+            ("f1_total_cost_USD", "Cost ($M)", lambda x: x / 1e6),
+            ("f2_one_minus_recall", "1-Recall", None),
+            ("f3_latency_seconds", "Latency (s)", None),
+            ("f4_traffic_disruption_hours", "Disruption (h)", None),
+            ("f5_carbon_emissions_kgCO2e_year", "Carbon (kg/yr)", None),
         ]
 
-        n = len(objectives)
-        fig, axes = plt.subplots(n - 1, n - 1, figsize=(12, 12))
+        # 过滤存在的列
+        cols = [(k, l, f) for k, l, f in cols if k in pareto_df.columns]
+        k = len(cols)
 
-        for i in range(n - 1):
-            for j in range(n - 1):
+        if k < 2:
+            logger.warning("Not enough objective columns for projection matrix")
+            return
+
+        # 合并所有baseline可行解作为背景
+        baseline_combined = None
+        if baseline_dfs:
+            feasible_list = []
+            for name, df in baseline_dfs.items():
+                if df is not None and len(df) > 0:
+                    if 'is_feasible' in df.columns:
+                        feasible = df[df['is_feasible']].copy()
+                    else:
+                        feasible = df.copy()
+                    if len(feasible) > 0:
+                        feasible_list.append(feasible)
+
+            if feasible_list:
+                baseline_combined = pd.concat(feasible_list, ignore_index=True)
+                # 采样最多2000个点作为背景
+                if len(baseline_combined) > 2000:
+                    baseline_combined = baseline_combined.sample(n=2000, random_state=42)
+
+        # 创建图表
+        fig, axes = plt.subplots(k, k, figsize=(2.4 * k, 2.4 * k), constrained_layout=True)
+
+        def get_values(df, key, transform_fn):
+            """获取并转换数值"""
+            if key not in df.columns:
+                return None
+            v = df[key].to_numpy()
+            return transform_fn(v) if transform_fn else v
+
+        for i in range(k):
+            for j in range(k):
                 ax = axes[i, j]
 
-                if j <= i:
-                    col_x, label_x, scale_x = objectives[j]
-                    col_y, label_y, scale_y = objectives[i + 1]
+                # 上三角：关闭
+                if i < j:
+                    ax.axis("off")
+                    continue
 
-                    ax.scatter(pareto_df[col_x] / scale_x,
-                               pareto_df[col_y] / scale_y,
-                               c=COLORS['nsga3'], alpha=0.7, s=50)
+                x_key, x_label, x_fn = cols[j]
+                y_key, y_label, y_fn = cols[i]
 
-                    if i == n - 2:
-                        ax.set_xlabel(label_x, fontsize=9)
-                    if j == 0:
-                        ax.set_ylabel(label_y, fontsize=9)
+                # 对角线：直方图
+                if i == j:
+                    x_pareto = get_values(pareto_df, x_key, x_fn)
+                    if x_pareto is not None:
+                        ax.hist(x_pareto, bins=12, color='steelblue', edgecolor='white', alpha=0.8)
+                    ax.set_ylabel("Count" if j == 0 else "")
+
+                # 下三角：散点图
                 else:
-                    ax.axis('off')
+                    # Baseline背景（灰点）
+                    if baseline_combined is not None:
+                        x_base = get_values(baseline_combined, x_key, x_fn)
+                        y_base = get_values(baseline_combined, y_key, y_fn)
+                        if x_base is not None and y_base is not None:
+                            ax.scatter(x_base, y_base, s=8, c='lightgray', alpha=0.3,
+                                       label='Baseline', rasterized=True)
 
-        plt.suptitle('Figure S1: Pareto Front Projection Matrix',
-                     fontsize=14, fontweight='bold')
-        plt.tight_layout()
+                    # Pareto前沿（蓝点）
+                    x_pareto = get_values(pareto_df, x_key, x_fn)
+                    y_pareto = get_values(pareto_df, y_key, y_fn)
+                    if x_pareto is not None and y_pareto is not None:
+                        ax.scatter(x_pareto, y_pareto, s=40, c='steelblue', alpha=0.85,
+                                   edgecolors='white', linewidths=0.5, label='Pareto', zorder=10)
+
+                    # Y轴标签
+                    if j == 0:
+                        ax.set_ylabel(y_label, fontsize=10)
+                    else:
+                        ax.set_ylabel("")
+
+                # X轴标签（只在最底行）
+                if i == k - 1:
+                    ax.set_xlabel(x_label, fontsize=10)
+                else:
+                    ax.set_xlabel("")
+                    ax.set_xticklabels([])
+
+                # 网格
+                ax.grid(True, alpha=0.2, linestyle='--')
+
+        # 标题
+        fig.suptitle("Figure S1: Pareto Front Projection Matrix", fontsize=14, fontweight='bold', y=1.01)
 
         self._save_fig(fig, 'figS1_pareto_projections')
         plt.close(fig)
 
-    def figS2_sensitivity_analysis(self, pareto_df: pd.DataFrame):
-        """补充图S2: 参数敏感性分析"""
-        fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    def figS2_sensitivity_analysis(self, pareto_df: pd.DataFrame,
+                                   baseline_dfs: Dict[str, pd.DataFrame] = None):
+        """
+        补充图S2: 参数敏感性分析 (改进版)
 
-        # (a) Detection threshold vs Recall
-        ax1 = axes[0, 0]
-        ax1.scatter(pareto_df['detection_threshold'],
-                    pareto_df['detection_recall'],
-                    c=pareto_df['f1_total_cost_USD'] / 1e6, cmap='viridis', s=60)
-        ax1.set_xlabel('Detection Threshold')
-        ax1.set_ylabel('Detection Recall')
-        ax1.set_title('(a) Threshold Sensitivity')
-        plt.colorbar(ax1.collections[0], ax=ax1, label='Cost (M$)')
+        改进点:
+        - (a) Detection Threshold vs Recall: 散点 + 成本颜色编码
+        - (b) Sensor Type vs Latency: 改为boxplot（按传感器分组）
+        - (c) Crew Size vs Cost: 改为boxplot（离散变量）
+        - (d) Inspection Cycle: 改为直方图（显示分布）
+        """
 
-        # (b) Data rate vs Latency
-        ax2 = axes[0, 1]
-        ax2.scatter(pareto_df['data_rate_Hz'],
-                    pareto_df['f3_latency_seconds'],
-                    c=pareto_df['detection_recall'], cmap='RdYlGn', s=60)
-        ax2.set_xlabel('Data Rate (Hz)')
-        ax2.set_ylabel('Latency (seconds)')
-        ax2.set_title('(b) Data Rate Impact on Latency')
-        plt.colorbar(ax2.collections[0], ax=ax2, label='Recall')
+        fig = plt.figure(figsize=(14, 10))
+        gs = GridSpec(2, 2, figure=fig, hspace=0.3, wspace=0.25)
 
-        # (c) Crew size vs Disruption
-        ax3 = axes[1, 0]
-        ax3.scatter(pareto_df['crew_size'],
-                    pareto_df['f4_traffic_disruption_hours'],
-                    c=pareto_df['f1_total_cost_USD'] / 1e6, cmap='viridis', s=60)
-        ax3.set_xlabel('Crew Size')
-        ax3.set_ylabel('Traffic Disruption (hours)')
-        ax3.set_title('(c) Crew Size Impact')
-        plt.colorbar(ax3.collections[0], ax=ax3, label='Cost (M$)')
+        # 提取sensor简称
+        def get_sensor_short(sensor_str):
+            if pd.isna(sensor_str):
+                return 'Unknown'
+            s = str(sensor_str)
+            if '#' in s:
+                s = s.split('#')[-1]
+            # 简化名称映射
+            mapping = {
+                'Camera_Basler': 'Basler', 'Camera_FLIR': 'FLIR',
+                'IoT_LoRaWAN': 'IoT-LoRa', 'IoT_Professional': 'IoT-Pro',
+                'Vehicle_Smartphone': 'Smartphone', 'Vehicle_Accelerometer': 'Accel',
+                'MMS_ZF': 'MMS-ZF', 'MMS_Riegl': 'MMS-Riegl', 'MMS_Leica': 'MMS-Leica',
+                'MMS_Trimble': 'MMS-Trimble', 'MMS_Basic': 'MMS-Basic',
+                'FOS_Luna': 'FOS-Luna', 'FOS_Basic': 'FOS-Basic',
+                'UAV_DJI': 'UAV-DJI', 'UAV_Riegl': 'UAV-Riegl',
+                'TLS_Faro': 'TLS-Faro', 'TLS_Leica': 'TLS-Leica',
+            }
+            for k, v in mapping.items():
+                if k in s:
+                    return v
+            return s[:12] if len(s) > 12 else s
 
-        # (d) Inspection cycle vs Carbon
-        ax4 = axes[1, 1]
-        ax4.scatter(pareto_df['inspection_cycle_days'],
-                    pareto_df['f5_carbon_emissions_kgCO2e_year'],
-                    c=pareto_df['detection_recall'], cmap='RdYlGn', s=60)
-        ax4.set_xlabel('Inspection Cycle (days)')
-        ax4.set_ylabel('Carbon Emissions (kg/year)')
-        ax4.set_title('(d) Inspection Frequency Impact')
-        plt.colorbar(ax4.collections[0], ax=ax4, label='Recall')
+        # 计算recall列
+        if 'detection_recall' not in pareto_df.columns and 'f2_one_minus_recall' in pareto_df.columns:
+            pareto_df = pareto_df.copy()
+            pareto_df['detection_recall'] = 1 - pareto_df['f2_one_minus_recall']
 
-        plt.suptitle('Figure S2: Parameter Sensitivity Analysis',
-                     fontsize=14, fontweight='bold')
-        plt.tight_layout()
+        # =========================================================================
+        # (a) Detection Threshold vs Recall - 散点图 + 颜色编码成本
+        # =========================================================================
+        ax1 = fig.add_subplot(gs[0, 0])
+
+        if 'detection_threshold' in pareto_df.columns and 'detection_recall' in pareto_df.columns:
+            x = pareto_df['detection_threshold'].values
+            y = pareto_df['detection_recall'].values
+            c = pareto_df['f1_total_cost_USD'].values / 1e6 if 'f1_total_cost_USD' in pareto_df.columns else None
+
+            if c is not None:
+                scatter = ax1.scatter(x, y, c=c, cmap='viridis', s=60, alpha=0.8,
+                                      edgecolors='white', linewidths=0.5)
+                cbar = plt.colorbar(scatter, ax=ax1, shrink=0.8)
+                cbar.set_label('Cost ($M)', fontsize=9)
+            else:
+                ax1.scatter(x, y, s=60, alpha=0.8, color='steelblue')
+
+            ax1.set_xlabel('Detection Threshold', fontsize=11)
+            ax1.set_ylabel('Detection Recall', fontsize=11)
+        else:
+            ax1.text(0.5, 0.5, 'Data not available', ha='center', va='center',
+                     transform=ax1.transAxes, fontsize=11, color='gray')
+
+        ax1.set_title('(a) Threshold Sensitivity', fontsize=12, fontweight='bold')
+        ax1.grid(True, alpha=0.3)
+
+        # =========================================================================
+        # (b) Sensor Type vs Latency - Boxplot
+        # =========================================================================
+        ax2 = fig.add_subplot(gs[0, 1])
+
+        if 'sensor' in pareto_df.columns and 'f3_latency_seconds' in pareto_df.columns:
+            df_plot = pareto_df.copy()
+            df_plot['sensor_short'] = df_plot['sensor'].apply(get_sensor_short)
+
+            # 按中位数排序
+            sensor_order = df_plot.groupby('sensor_short')['f3_latency_seconds'].median().sort_values().index.tolist()
+
+            # 准备boxplot数据
+            box_data = []
+            box_labels = []
+            for s in sensor_order:
+                data = df_plot[df_plot['sensor_short'] == s]['f3_latency_seconds'].values
+                if len(data) > 0:
+                    box_data.append(data)
+                    box_labels.append(s)
+
+            if box_data:
+                bp = ax2.boxplot(box_data, patch_artist=True, showfliers=False)
+                ax2.set_xticklabels(box_labels, rotation=45, ha='right', fontsize=9)
+
+                # 颜色
+                colors = plt.cm.Set3(np.linspace(0, 1, len(box_data)))
+                for patch, color in zip(bp['boxes'], colors):
+                    patch.set_facecolor(color)
+                    patch.set_alpha(0.7)
+
+                ax2.set_xlabel('Sensor Type', fontsize=11)
+                ax2.set_ylabel('Latency (s)', fontsize=11)
+        else:
+            ax2.text(0.5, 0.5, 'Data not available', ha='center', va='center',
+                     transform=ax2.transAxes, fontsize=11, color='gray')
+
+        ax2.set_title('(b) Sensor Type Impact on Latency', fontsize=12, fontweight='bold')
+        ax2.grid(True, alpha=0.3, axis='y')
+
+        # =========================================================================
+        # (c) Crew Size vs Cost - Boxplot
+        # =========================================================================
+        ax3 = fig.add_subplot(gs[1, 0])
+
+        if 'crew_size' in pareto_df.columns and 'f1_total_cost_USD' in pareto_df.columns:
+            # 按crew_size分组
+            grouped = pareto_df.groupby('crew_size')['f1_total_cost_USD'].apply(list)
+            crews = sorted(grouped.index.tolist())
+
+            box_data = []
+            box_labels = []
+            for c in crews:
+                data = grouped[c]
+                if len(data) > 0:
+                    box_data.append(np.array(data) / 1e6)
+                    box_labels.append(str(int(c)))
+
+            if box_data:
+                bp = ax3.boxplot(box_data, patch_artist=True, showfliers=False)
+                ax3.set_xticklabels(box_labels, fontsize=10)
+
+                # 颜色渐变
+                colors = plt.cm.Blues(np.linspace(0.3, 0.8, len(box_data)))
+                for patch, color in zip(bp['boxes'], colors):
+                    patch.set_facecolor(color)
+                    patch.set_alpha(0.8)
+
+                ax3.set_xlabel('Crew Size', fontsize=11)
+                ax3.set_ylabel('Total Cost ($M)', fontsize=11)
+        else:
+            ax3.text(0.5, 0.5, 'Data not available', ha='center', va='center',
+                     transform=ax3.transAxes, fontsize=11, color='gray')
+
+        ax3.set_title('(c) Crew Size Impact on Cost', fontsize=12, fontweight='bold')
+        ax3.grid(True, alpha=0.3, axis='y')
+
+        # =========================================================================
+        # (d) Inspection Cycle Distribution - 直方图
+        # =========================================================================
+        ax4 = fig.add_subplot(gs[1, 1])
+
+        if 'inspection_cycle_days' in pareto_df.columns:
+            x = pareto_df['inspection_cycle_days'].values
+
+            # 直方图
+            n, bins, patches = ax4.hist(x, bins=15, color='steelblue', edgecolor='white', alpha=0.8)
+
+            # 颜色渐变
+            cm = plt.cm.Blues
+            bin_centers = 0.5 * (bins[:-1] + bins[1:])
+            col = (bin_centers - bin_centers.min()) / (bin_centers.max() - bin_centers.min() + 1e-10)
+            for c, p in zip(col, patches):
+                plt.setp(p, 'facecolor', cm(0.3 + 0.5 * c))
+
+            # 添加均值线
+            mean_val = np.mean(x)
+            ax4.axvline(mean_val, color='red', linestyle='--', linewidth=2, alpha=0.7)
+
+            ax4.set_xlabel('Inspection Cycle (days)', fontsize=11)
+            ax4.set_ylabel('Count', fontsize=11)
+        else:
+            ax4.text(0.5, 0.5, 'Data not available', ha='center', va='center',
+                     transform=ax4.transAxes, fontsize=11, color='gray')
+
+        ax4.set_title('(d) Inspection Cycle Distribution', fontsize=12, fontweight='bold')
+        ax4.grid(True, alpha=0.3, axis='y')
+
+        # =========================================================================
+        # 总标题和保存
+        # =========================================================================
+        fig.suptitle('Figure S2: Parameter Sensitivity Analysis', fontsize=14, fontweight='bold', y=0.98)
 
         self._save_fig(fig, 'figS2_sensitivity')
         plt.close(fig)
