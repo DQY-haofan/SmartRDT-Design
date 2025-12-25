@@ -118,7 +118,8 @@ class MultiObjectiveMetrics6D:
         ref_norm = np.ones(n_obj)
 
         # 蒙特卡洛采样
-        samples = np.random.uniform(0, 1, size=(n_samples, n_obj))
+        rng = np.random.default_rng(42)
+        samples = rng.uniform(0, 1, size=(n_samples, n_obj))
 
         # 计算被Pareto前沿支配的样本比例
         dominated_count = 0

@@ -431,39 +431,58 @@ class WeightedSumBaseline(BaselineMethod):
         logger.info(f"Weighted Sum: {self.execution_time:.2f}s, {df['is_feasible'].sum()} feasible")
         
         return df
-    
-    def _generate_weight_sets(self, n_sets: int) -> np.ndarray:
-        """Generate diverse weight combinations"""
+
+    def _generate_weight_sets(self, n_sets: int = 50) -> np.ndarray:
+
         weights = []
         rng = self.rng
-        
-        # Uniform weights
-        weights.append(np.ones(6) / 6)
-        
-        # Single objective focus
-        for i in range(6):
-            w = np.zeros(6)
+        n_obj = 6
+
+        # 1) Uniform weights
+        weights.append(np.ones(n_obj) / n_obj)
+
+        # 2) Single objective focus (corners) - 6个
+        for i in range(n_obj):
+            w = np.zeros(n_obj)
             w[i] = 1.0
             weights.append(w)
-        
-        # Pairwise
-        for i in range(6):
-            for j in range(i + 1, 6):
-                w = np.zeros(6)
+
+        # 3) Pairwise combinations (edges) - 15个
+        for i in range(n_obj):
+            for j in range(i + 1, n_obj):
+                w = np.zeros(n_obj)
                 w[i] = 0.5
                 w[j] = 0.5
                 weights.append(w)
-                if len(weights) >= n_sets:
-                    break
-            if len(weights) >= n_sets:
-                break
-        
-        # Random
+
+        # 4) Practical weight combinations - 工程实践常见组合
+        # 成本+召回 (最常见权衡)
+        weights.append(np.array([0.4, 0.4, 0.05, 0.05, 0.05, 0.05]))
+        # 成本+延迟 (实时性需求)
+        weights.append(np.array([0.4, 0.1, 0.4, 0.03, 0.03, 0.04]))
+        # 召回+可靠性 (安全关键)
+        weights.append(np.array([0.1, 0.4, 0.1, 0.1, 0.1, 0.2]))
+        # 低碳+成本 (绿色优先)
+        weights.append(np.array([0.3, 0.1, 0.1, 0.1, 0.3, 0.1]))
+
+        # 5) Dirichlet sampling - 核心改进
+        # alpha < 1: 稀疏权重，集中在少数目标
+        # alpha = 1: 均匀分布
+        # alpha > 1: 更均衡的权重分配
+        for alpha in [0.3, 0.5, 1.0, 2.0, 5.0]:
+            n_to_add = max(3, (n_sets - len(weights)) // 5)
+            dirichlet_weights = rng.dirichlet(np.ones(n_obj) * alpha, size=n_to_add)
+            for w in dirichlet_weights:
+                if len(weights) < n_sets:
+                    weights.append(w)
+
+        # 6) Fill remaining with random
         while len(weights) < n_sets:
-            w = rng.random(6)
+            w = rng.random(n_obj)
             w = w / w.sum()
             weights.append(w)
-        
+
+        logger.info(f"Generated {len(weights[:n_sets])} weight combinations (Dirichlet enhanced)")
         return np.array(weights[:n_sets])
     
     def _generate_initial_point(self) -> np.ndarray:

@@ -32,6 +32,7 @@ class ConfigManager:
     # 运营参数
     daily_wage_per_person: float = 1500
     fos_sensor_spacing_km: float = 0.1
+    fixed_sensor_density_per_km: float = 1.0  # 【新增】固定传感器密度，每km安装数量
     depreciation_rate: float = 0.1
     scenario_type: str = 'urban'
     carbon_intensity_factor: float = 0.417
