@@ -158,7 +158,7 @@ def build_ontology(ontology: 'OntologyManager') -> None:
 
     # 基础本体已在 __init__ 中创建
     logger.warning("使用基础本体结构（无CSV数据）")
-    
+
 
 def save_ontology(ontology: 'OntologyManager', path: str) -> None:
     """保存本体（兼容不同的方法名）"""
@@ -194,8 +194,9 @@ def run_optimization(
     logger.info("Optimizer initialized with seed=%d", seed)
 
     # 初始化优化器
+    # 注意: RMTwinOptimizer 需要 ontology.g (Graph对象) 而不是 OntologyManager
     optimizer = RMTwinOptimizer(
-        ontology=ontology,
+        ontology_graph=ontology.g,  # 传递Graph对象
         config=config,
         seed=seed
     )
