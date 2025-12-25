@@ -24,6 +24,364 @@ import warnings
 warnings.filterwarnings('ignore')
 
 
+# =============================================================================
+# 【v3.1】统一6D指标计算模块
+# 解决HV与Coverage矛盾问题
+# =============================================================================
+
+class UnifiedMetricsCalculator:
+    """
+    统一的6D指标计算器
+
+    关键设计：
+    1. 所有目标统一为minimization方向
+    2. 使用统一的bounds进行归一化
+    3. 使用统一的ref_point计算HV
+    4. HV和Coverage在同一空间计算
+    """
+
+    # 目标列定义（全部为minimization）
+    OBJECTIVE_COLUMNS = [
+        'f1_total_cost_USD',  # min: 成本越低越好
+        'f2_one_minus_recall',  # min: 1-recall，越低recall越高
+        'f3_latency_seconds',  # min: 延迟越低越好
+        'f4_traffic_disruption_hours',  # min: 中断越少越好
+        'f5_carbon_emissions_kgCO2e_year',  # min: 碳排放越低越好
+    ]
+
+    def __init__(self, ref_point_factor: float = 1.1):
+        """
+        Args:
+            ref_point_factor: 归一化空间中的参考点因子（默认1.1）
+        """
+        self.ref_point_factor = ref_point_factor
+        self.ideal = None
+        self.nadir = None
+        self.obj_cols = None
+
+    def prepare_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        准备DataFrame，确保有正确的目标列
+        """
+        df = df.copy()
+
+        # 转换detection_recall为1-recall
+        if 'detection_recall' in df.columns and 'f2_one_minus_recall' not in df.columns:
+            df['f2_one_minus_recall'] = 1.0 - df['detection_recall']
+
+        # 转换MTBF为inverse（如果需要第6个目标）
+        if 'system_MTBF_hours' in df.columns and 'f6_inverse_MTBF' not in df.columns:
+            df['f6_inverse_MTBF'] = 1.0 / df['system_MTBF_hours'].clip(lower=1)
+
+        return df
+
+    def filter_feasible(self, df: pd.DataFrame) -> pd.DataFrame:
+        """过滤可行解"""
+        if 'is_feasible' in df.columns:
+            return df[df['is_feasible'] == True].copy()
+        return df.copy()
+
+    def compute_unified_bounds(self, *dataframes) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        计算所有数据的统一bounds
+
+        Returns:
+            ideal: 每个目标的最小值
+            nadir: 每个目标的最大值
+        """
+        # 找到所有数据中都存在的目标列
+        self.obj_cols = []
+        for col in self.OBJECTIVE_COLUMNS:
+            if all(col in df.columns for df in dataframes):
+                self.obj_cols.append(col)
+
+        if len(self.obj_cols) < 2:
+            raise ValueError(f"目标列不足，找到: {self.obj_cols}")
+
+        # 合并所有数据
+        all_F = []
+        for df in dataframes:
+            if len(df) > 0:
+                all_F.append(df[self.obj_cols].values)
+
+        combined = np.vstack(all_F)
+
+        self.ideal = np.min(combined, axis=0)
+        self.nadir = np.max(combined, axis=0)
+
+        # 避免除零
+        self.nadir = np.where(
+            self.nadir == self.ideal,
+            self.ideal + 1e-10,
+            self.nadir
+        )
+
+        return self.ideal, self.nadir
+
+    def normalize(self, F: np.ndarray) -> np.ndarray:
+        """归一化到[0, 1]空间"""
+        if self.ideal is None or self.nadir is None:
+            raise ValueError("请先调用compute_unified_bounds()")
+        return (F - self.ideal) / (self.nadir - self.ideal)
+
+    def hypervolume_monte_carlo(
+            self,
+            F_normalized: np.ndarray,
+            n_samples: int = 100000,
+            seed: int = 42
+    ) -> float:
+        """
+        蒙特卡洛方法计算Hypervolume
+
+        Args:
+            F_normalized: 归一化后的目标矩阵 (n_solutions, n_objectives)
+            n_samples: 蒙特卡洛采样数
+            seed: 随机种子
+
+        Returns:
+            hypervolume值
+        """
+        if len(F_normalized) == 0:
+            return 0.0
+
+        n_obj = F_normalized.shape[1]
+        ref_point = self.ref_point_factor
+
+        rng = np.random.default_rng(seed)
+        samples = rng.uniform(0, ref_point, size=(n_samples, n_obj))
+
+        # 计算被支配的样本数
+        dominated_count = 0
+        for sample in samples:
+            for sol in F_normalized:
+                if np.all(sol <= sample):  # sol支配sample
+                    dominated_count += 1
+                    break
+
+        # HV = 被支配比例 × 总体积
+        total_volume = ref_point ** n_obj
+        return (dominated_count / n_samples) * total_volume
+
+    def coverage(self, A: np.ndarray, B: np.ndarray) -> float:
+        """
+        计算Coverage指标 C(A, B)
+
+        C(A,B) = |{b ∈ B : ∃a ∈ A, a dominates b}| / |B|
+
+        即A中的解支配B中解的比例
+
+        Args:
+            A: 第一个解集（归一化后）
+            B: 第二个解集（归一化后）
+
+        Returns:
+            A支配B的比例 [0, 1]
+        """
+        if len(B) == 0:
+            return 0.0
+
+        dominated_count = 0
+        for b in B:
+            for a in A:
+                # a严格支配b: a在所有目标上<=b，且至少一个目标<b
+                if np.all(a <= b) and np.any(a < b):
+                    dominated_count += 1
+                    break
+
+        return dominated_count / len(B)
+
+    def compute_all_metrics(
+            self,
+            pareto_df: pd.DataFrame,
+            baseline_dfs: Dict[str, pd.DataFrame],
+            output_dir: str = None
+    ) -> Dict:
+        """
+        计算所有指标
+
+        Args:
+            pareto_df: NSGA-III的Pareto解集
+            baseline_dfs: 基线方法的DataFrame字典 {'Random': df, 'Grid': df, ...}
+            output_dir: 输出目录（可选）
+
+        Returns:
+            包含所有指标的字典
+        """
+        print("=" * 70)
+        print("【v3.1】统一6D指标计算")
+        print("=" * 70)
+
+        # 1. 准备数据
+        pareto_df = self.prepare_dataframe(pareto_df)
+        pareto_df = self.filter_feasible(pareto_df)
+
+        prepared_baselines = {}
+        for name, df in baseline_dfs.items():
+            df = self.prepare_dataframe(df)
+            df = self.filter_feasible(df)
+            prepared_baselines[name] = df
+
+        all_dfs = {'NSGA-III': pareto_df, **prepared_baselines}
+
+        print(f"\n数据统计 (feasible only):")
+        for name, df in all_dfs.items():
+            print(f"  {name}: {len(df)} solutions")
+
+        # 2. 计算统一bounds
+        self.compute_unified_bounds(*all_dfs.values())
+
+        print(f"\n统一Bounds (across all methods):")
+        for i, col in enumerate(self.obj_cols):
+            print(f"  {col}: [{self.ideal[i]:.4e}, {self.nadir[i]:.4e}]")
+        print(f"\nRef point factor: {self.ref_point_factor}")
+
+        # 3. 归一化
+        normalized = {}
+        for name, df in all_dfs.items():
+            if len(df) > 0:
+                F = df[self.obj_cols].values
+                normalized[name] = self.normalize(F)
+            else:
+                normalized[name] = np.array([])
+
+        # 4. 计算Hypervolume
+        print(f"\n{'=' * 50}")
+        print("Hypervolume (Monte Carlo, 100K samples)")
+        print(f"{'=' * 50}")
+
+        hv_results = {}
+        for name, F_norm in normalized.items():
+            hv = self.hypervolume_monte_carlo(F_norm)
+            hv_results[name] = hv
+            print(f"  {name}: HV = {hv:.6f} (n={len(F_norm)})")
+
+        # 5. 计算Coverage（双向）
+        print(f"\n{'=' * 50}")
+        print("Coverage (Bidirectional)")
+        print(f"{'=' * 50}")
+
+        coverage_results = []
+        nsga_norm = normalized['NSGA-III']
+
+        for name in prepared_baselines.keys():
+            if name not in normalized:
+                continue
+            F_norm = normalized[name]
+
+            c_nsga_to_b = self.coverage(nsga_norm, F_norm) * 100
+            c_b_to_nsga = self.coverage(F_norm, nsga_norm) * 100
+            net_advantage = c_nsga_to_b - c_b_to_nsga
+
+            print(f"\n  NSGA-III vs {name}:")
+            print(f"    C(NSGA→{name}) = {c_nsga_to_b:.1f}%")
+            print(f"    C({name}→NSGA) = {c_b_to_nsga:.1f}%")
+            print(f"    Net advantage = {net_advantage:+.1f}%")
+
+            coverage_results.append({
+                'Baseline': name,
+                'C_NSGA_to_B': c_nsga_to_b,
+                'C_B_to_NSGA': c_b_to_nsga,
+                'Net_Advantage': net_advantage
+            })
+
+        # 6. 一致性检查
+        print(f"\n{'=' * 50}")
+        print("Consistency Check (HV vs Coverage)")
+        print(f"{'=' * 50}")
+
+        hv_nsga = hv_results['NSGA-III']
+        all_consistent = True
+
+        for result in coverage_results:
+            name = result['Baseline']
+            hv_b = hv_results.get(name, 0)
+            c_nsga_to_b = result['C_NSGA_to_B']
+            c_b_to_nsga = result['C_B_to_NSGA']
+
+            # 检查一致性
+            # 如果NSGA HV更高，通常应该支配更多
+            # 如果NSGA被支配更多，HV应该更低
+
+            if hv_nsga > hv_b and c_b_to_nsga > c_nsga_to_b + 10:
+                print(f"  ⚠️ {name}: HV says NSGA better, but Coverage says {name} dominates more")
+                all_consistent = False
+            elif hv_nsga < hv_b and c_nsga_to_b > c_b_to_nsga + 10:
+                print(f"  ⚠️ {name}: HV says {name} better, but Coverage says NSGA dominates more")
+                all_consistent = False
+            else:
+                print(f"  ✅ {name}: HV and Coverage are consistent")
+
+        if all_consistent:
+            print(f"\n✅ All metrics are internally consistent!")
+        else:
+            print(f"\n⚠️ Some inconsistencies detected - please review")
+
+        # 7. 保存结果
+        if output_dir:
+            output_dir = Path(output_dir)
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            # HV结果
+            hv_df = pd.DataFrame([
+                {'Method': k, 'HV': v, 'N_solutions': len(all_dfs[k])}
+                for k, v in hv_results.items()
+            ])
+            hv_df.to_csv(output_dir / 'hypervolume_unified.csv', index=False)
+
+            # Coverage结果
+            cov_df = pd.DataFrame(coverage_results)
+            cov_df.to_csv(output_dir / 'coverage_unified.csv', index=False)
+
+            # Bounds信息
+            bounds_info = {
+                'ideal': self.ideal.tolist(),
+                'nadir': self.nadir.tolist(),
+                'columns': self.obj_cols,
+                'ref_point_factor': self.ref_point_factor,
+                'n_objectives': len(self.obj_cols)
+            }
+            with open(output_dir / 'bounds_info.json', 'w') as f:
+                json.dump(bounds_info, f, indent=2)
+
+            print(f"\n结果已保存到: {output_dir}")
+
+        return {
+            'hypervolume': hv_results,
+            'coverage': coverage_results,
+            'bounds': {'ideal': self.ideal, 'nadir': self.nadir},
+            'obj_cols': self.obj_cols
+        }
+
+
+def compute_metrics_unified(pareto_csv: str, baseline_dir: str, output_dir: str):
+    """
+    便捷函数：计算统一指标
+
+    Args:
+        pareto_csv: Pareto解集CSV路径
+        baseline_dir: 包含baseline_*.csv的目录
+        output_dir: 输出目录
+    """
+    from pathlib import Path
+
+    # 加载数据
+    pareto_df = pd.read_csv(pareto_csv)
+
+    baseline_dir = Path(baseline_dir)
+    baseline_dfs = {}
+
+    for name in ['random', 'weighted', 'grid', 'expert']:
+        path = baseline_dir / f'baseline_{name}.csv'
+        if path.exists():
+            baseline_dfs[name.title()] = pd.read_csv(path)
+
+    # 计算指标
+    calculator = UnifiedMetricsCalculator(ref_point_factor=1.1)
+    results = calculator.compute_all_metrics(pareto_df, baseline_dfs, output_dir)
+
+    return results
+
+
 class MultiObjectiveMetrics6D:
     """
     6维多目标优化指标计算器

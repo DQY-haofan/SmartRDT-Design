@@ -320,208 +320,71 @@ class EnhancedFitnessEvaluatorV3:
     # OBJECTIVE 1: TOTAL COST (USD over planning horizon)
     # =========================================================================
 
-    def _calculate_total_cost(self, config: Dict) -> float:
-        """
-        Calculate total lifecycle cost.
+    @dataclass
+    class ConfigManager:
+        """Configuration manager for RMTwin optimization."""
 
-        【已修复】区分固定点位型和移动巡检型传感器的成本计算
+        # Road network parameters
+        road_network_length_km: float = 500.0
+        planning_horizon_years: int = 10
 
-        固定点位型 (coverage=0): IoT, FOS, 固定Camera
-          - CAPEX = 单价 × sensors_needed
-          - OPEX = 日成本 × sensors_needed × 365
+        # Constraint thresholds
+        budget_cap_usd: float = 10_000_000
+        min_recall_threshold: float = 0.8
+        max_latency_seconds: float = 200.0
+        max_disruption_hours: float = 1000.0
+        max_carbon_emissions_kgCO2e_year: float = 200_000
+        min_mtbf_hours: float = 1000.0
 
-        移动巡检型 (coverage>0): MMS, UAV, TLS, Vehicle, Handheld
-          - CAPEX = 单价 × units_needed (通常1-3套)
-          - OPEX = 日成本 × 巡检天数 × 巡检频率
+        # Sensor density parameters
+        fos_sensor_spacing_km: float = 0.1  # FOS光纤传感器间距
+        fixed_sensor_density_per_km: float = 1.0  # IoT等固定传感器密度
+        mobile_km_per_unit_per_day: float = 80.0  # 【v3.1新增】移动设备每天可覆盖里程(km)
 
-        Affected by: sensor, data_rate, geo_lod, algorithm, detection_threshold,
-                    storage, communication, deployment, crew_size, inspection_cycle
-        """
-        sensor_name = str(config['sensor']).split('#')[-1]
-        sensor_type = get_sensor_type(sensor_name)
-        storage_type = get_storage_type(str(config['storage']))
-        comm_type = get_comm_type(str(config['communication']))
-        deploy_type = get_deployment_type(str(config['deployment']))
-        algo_type = get_algo_type(str(config['algorithm']))
+        # Labor cost
+        daily_wage_per_person: float = 500.0
 
-        road_length = self.config.road_network_length_km
-        planning_years = self.config.planning_horizon_years
-        inspections_per_year = 365.0 / config['inspection_cycle']
+        # Data parameters
+        data_retention_years: int = 3
 
-        # ----- CAPEX -----
-        sensor_initial = self._query_property(config['sensor'], 'hasInitialCostUSD', 100000)
-        coverage_km_day = self._query_property(config['sensor'], 'hasCoverageEfficiencyKmPerDay', 80)
-
-        # 【L1修复】区分固定点位型和移动巡检型
-        if sensor_type == 'FOS':
-            # FOS: 光纤传感器，高密度布设
-            sensor_spacing_km = self.config.fos_sensor_spacing_km  # 默认0.1km
-            sensors_needed = int(np.ceil(road_length / sensor_spacing_km))
-            installation_cost_per_sensor = 5000  # 光纤安装成本高
-            total_sensor_initial = (sensor_initial + installation_cost_per_sensor) * sensors_needed
-
-        elif coverage_km_day == 0 or sensor_type == 'IoT':
-            # 【新增】固定点位型传感器: IoT, 固定Camera等
-            # 使用配置的密度参数，默认每1km一个
-            density_per_km = getattr(self.config, 'fixed_sensor_density_per_km', 1.0)
-            sensors_needed = int(np.ceil(road_length * density_per_km))
-
-            # IoT安装成本较低，其他固定传感器较高
-            if sensor_type == 'IoT':
-                installation_cost_per_sensor = 200  # LoRa网关部署
-            else:
-                installation_cost_per_sensor = 1000  # 固定摄像头等
-
-            total_sensor_initial = (sensor_initial + installation_cost_per_sensor) * sensors_needed
-
-        else:
-            # 移动巡检型: MMS, UAV, TLS, Vehicle, Handheld
-            # 【L2可选增强】根据覆盖能力计算需要的设备/班组数
-            # 简化模型：假设设备利用率80%，计算需要几套设备
-            coverage_per_cycle = coverage_km_day * config['inspection_cycle'] * 0.8
-            if coverage_per_cycle > 0:
-                units_needed = max(1, int(np.ceil(road_length / coverage_per_cycle)))
-            else:
-                units_needed = 1
-
-            # 移动设备通常1-3套，不会是500套
-            units_needed = min(units_needed, 5)  # 合理上限
-            total_sensor_initial = sensor_initial * units_needed
-
-        # Other component costs
-        storage_initial = self._query_property(config['storage'], 'hasInitialCostUSD', 0)
-        comm_initial = self._query_property(config['communication'], 'hasInitialCostUSD', 0)
-        deploy_initial = self._query_property(config['deployment'], 'hasInitialCostUSD', 0)
-        algo_initial = self._query_property(config['algorithm'], 'hasInitialCostUSD', 20000)
-
-        total_capex = total_sensor_initial + storage_initial + comm_initial + deploy_initial + algo_initial
-
-        # Annual capital cost (depreciation)
-        dep_rate = get_param('depreciation_rate', sensor_type, 0.12)
-        annual_capital_cost = total_capex * dep_rate
-
-        # ----- SENSOR OPEX -----
-        sensor_daily_cost = self._query_property(config['sensor'], 'hasOperationalCostUSDPerDay', 100)
-
-        if coverage_km_day > 0:  # Mobile sensor
-            days_per_inspection = road_length / coverage_km_day
-            sensor_annual_opex = sensor_daily_cost * days_per_inspection * inspections_per_year
-        else:  # Fixed sensor
-            # 【L1修复】固定传感器OPEX也要乘以数量
-            if sensor_type == 'FOS':
-                sensors_needed = int(np.ceil(road_length / self.config.fos_sensor_spacing_km))
-                # FOS日维护成本较低
-                sensor_annual_opex = 0.5 * sensors_needed * 365
-            else:
-                # IoT等固定传感器
-                density_per_km = getattr(self.config, 'fixed_sensor_density_per_km', 1.0)
-                sensors_needed = int(np.ceil(road_length * density_per_km))
-                # 每个传感器的日运营成本
-                sensor_annual_opex = sensor_daily_cost * sensors_needed * 365
-
-        # ----- DATA VOLUME CALCULATION (affects storage, comm, compute costs) -----
-        base_data_gb_per_km = self._query_property(config['sensor'], 'hasDataVolumeGBPerKm', 1.0)
-
-        # LOD multiplier
-        lod_mult = get_param('lod_data_multiplier', config['geo_lod'], 1.0)
-
-        # Data rate multiplier
-        base_rate = MODEL_PARAMS['recall_model']['base_data_rate']
-        rate_mult = config['data_rate'] / base_rate
-
-        # Raw data volume per year
-        raw_data_gb_year = base_data_gb_per_km * road_length * lod_mult * rate_mult * inspections_per_year
-
-        # Data reduction at edge
-        data_reduction = get_param('data_reduction_ratio', deploy_type, 0.7)
-        sent_data_gb_year = raw_data_gb_year * data_reduction
-
-        # ----- STORAGE COST -----
-        storage_cost_rate = get_param('storage_cost_USD_per_GB_year', storage_type, 0.20)
-        retention_years = getattr(self.config, 'data_retention_years', 3)
-        storage_annual = (storage_cost_rate * raw_data_gb_year * min(retention_years, 3) +
-                          self._query_property(config['storage'], 'hasAnnualOpCostUSD', 5000))
-
-        # ----- COMMUNICATION COST -----
-        comm_cost_rate = get_param('comm_cost_USD_per_GB', comm_type, 0.05)
-        comm_annual = (comm_cost_rate * sent_data_gb_year +
-                       self._query_property(config['communication'], 'hasAnnualOpCostUSD', 2000))
-
-        # ----- COMPUTE COST -----
-        compute_time_per_gb = get_param('algo_compute_seconds_per_GB', algo_type, 15.0)
-        compute_factor = get_param('deployment_compute_factor', deploy_type, 1.5)
-        annual_compute_seconds = compute_time_per_gb * sent_data_gb_year * compute_factor
-        annual_compute_hours = annual_compute_seconds / 3600.0
-
-        compute_cost_rate = get_param('deployment_compute_cost_USD_per_hour', deploy_type, 0.5)
-        compute_annual = (compute_cost_rate * annual_compute_hours +
-                          self._query_property(config['deployment'], 'hasAnnualOpCostUSD', 5000))
-
-        # ----- LABOR COST -----
-        skill_level = str(self._query_property(config['sensor'], 'hasOperatorSkillLevel', 'Basic'))
-        skill_mult = get_param('skill_wage_multiplier', skill_level, 1.0)
-        daily_wage = self.config.daily_wage_per_person * skill_mult
-
-        if coverage_km_day > 0:
-            crew_annual_cost = config['crew_size'] * daily_wage * days_per_inspection * inspections_per_year
-        else:
-            # 固定传感器的维护人工
-            # 按传感器数量和维护频率计算
-            if sensor_type == 'FOS':
-                maintenance_days = 10
-            elif sensor_type == 'IoT':
-                maintenance_days = 5  # IoT维护需求低
-            else:
-                maintenance_days = 20
-            crew_annual_cost = config['crew_size'] * daily_wage * maintenance_days
-
-        # ----- ML/DL ANNOTATION COST -----
-        annotation_mult = get_param('annotation_cost_multiplier', algo_type, 0.0)
-        if annotation_mult > 0:
-            base_annotation_cost = self._query_property(config['algorithm'], 'hasDataAnnotationCostUSD', 0.5)
-            if 'Camera' in sensor_name:
-                annual_images = 100 * road_length * inspections_per_year
-            else:
-                annual_images = 10000 * inspections_per_year
-            annotation_annual = base_annotation_cost * annual_images * annotation_mult * 0.3
-        else:
-            annotation_annual = 0
-
-        # ----- MODEL RETRAINING COST -----
-        retrain_freq = self._query_property(config['algorithm'], 'hasModelRetrainingFreqMonths', 12)
-        if retrain_freq and retrain_freq > 0 and algo_type in ['DL', 'ML']:
-            retrainings_per_year = 12.0 / retrain_freq
-            retrain_cost = 5000 if algo_type == 'DL' else 2000
-            retrain_annual = retrain_cost * retrainings_per_year
-        else:
-            retrain_annual = 0
-
-        # ----- FALSE POSITIVE PENALTY -----
-        tau0 = MODEL_PARAMS['recall_model']['tau0']
-        tau = config['detection_threshold']
-        if tau < tau0:
-            fp_coeff = MODEL_PARAMS['fp_penalty_coeff']
-            base_ops_cost = sensor_annual_opex + crew_annual_cost
-            fp_penalty = fp_coeff * ((tau0 - tau) ** 2) * base_ops_cost
-        else:
-            fp_penalty = 0
-
-        # ----- TOTAL ANNUAL COST -----
-        total_annual = (annual_capital_cost + sensor_annual_opex + storage_annual +
-                        comm_annual + compute_annual + crew_annual_cost +
-                        annotation_annual + retrain_annual + fp_penalty)
+        # Optimization parameters
+        n_generations: int = 100
+        population_size: int = 2000
+        random_seed: int = 42
 
         # Seasonal adjustment
-        if getattr(self.config, 'apply_seasonal_adjustments', True):
-            total_annual *= 1.075
+        apply_seasonal_adjustments: bool = True
 
-        # Lifecycle cost
-        total_cost = total_annual * planning_years
+        # Output settings
+        output_dir: str = "results"
+        debug_mode: bool = False
 
-        # Sanity check
-        assert validate_positive(total_cost, "total_cost"), f"Invalid cost: {total_cost}"
+        @classmethod
+        def from_json(cls, json_path: str) -> 'ConfigManager':
+            """Load configuration from JSON file."""
+            with open(json_path, 'r') as f:
+                config_dict = json.load(f)
 
-        return total_cost
+            # Filter only known fields
+            known_fields = {f.name for f in fields(cls)}
+            filtered_dict = {}
+
+            for key, value in config_dict.items():
+                if key in known_fields:
+                    filtered_dict[key] = value
+                else:
+                    logger.warning(f"未知配置键: {key}")
+
+            return cls(**filtered_dict)
+
+        def to_dict(self) -> Dict:
+            """Convert to dictionary."""
+            return asdict(self)
+
+        def save_snapshot(self, path: str):
+            """Save configuration snapshot."""
+            with open(path, 'w') as f:
+                json.dump(self.to_dict(), f, indent=2)
 
     # =========================================================================
     # OBJECTIVE 2: DETECTION PERFORMANCE (1 - recall)
