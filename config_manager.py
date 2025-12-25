@@ -30,7 +30,7 @@ class ConfigManager:
     budget_cap_usd: float = 20_000_000  # 保持原始预算
     
     # 运营参数
-    daily_wage_per_person: float = 1500
+    daily_wage_per_person: float = 500
     fos_sensor_spacing_km: float = 0.1
     fixed_sensor_density_per_km: float = 1.0  # 【新增】固定传感器密度，每km安装数量
     mobile_km_per_unit_per_day: float = 80.0  # 移动设备每天可覆盖里程(km)
@@ -45,7 +45,9 @@ class ConfigManager:
     max_energy_kwh_year: float = 200_000  # 从50k增加到150k
     min_mtbf_hours: float = 1_500  # 从5000降低到2000（约3个月）
     max_carbon_emissions_kgCO2e_year: float = 300_000  # 增加到200k
-    
+
+
+
     # 额外的运营参数
     apply_seasonal_adjustments: bool = True
     traffic_volume_hourly: int = 2000
@@ -75,8 +77,8 @@ class ConfigManager:
     # 优化参数
     n_objectives: int = 6
     n_partitions: int = 4  # 添加这一行
-    population_size: int = 300
-    n_generations: int = 200
+    population_size: int = 2000
+    n_generations: int = 100
     crossover_prob: float = 0.9
     crossover_eta: float = 20
     mutation_eta: float = 20
@@ -99,7 +101,34 @@ class ConfigManager:
     # 调试选项
     data_retention_years: int = 3
     enable_debug_output: bool = True
-    
+
+    @classmethod
+    def from_json(cls, json_path: str) -> 'ConfigManager':
+        """Load configuration from JSON file."""
+        with open(json_path, 'r') as f:
+            config_dict = json.load(f)
+
+        # Filter only known fields
+        known_fields = {f.name for f in fields(cls)}
+        filtered_dict = {}
+
+        for key, value in config_dict.items():
+            if key in known_fields:
+                filtered_dict[key] = value
+            else:
+                logger.warning(f"未知配置键: {key}")
+
+        return cls(**filtered_dict)
+
+    def to_dict(self) -> Dict:
+        """Convert to dictionary."""
+        return asdict(self)
+
+    def save_snapshot(self, path: str):
+        """Save configuration snapshot."""
+        with open(path, 'w') as f:
+            json.dump(self.to_dict(), f, indent=2)
+
     def __post_init__(self):
         """初始化后处理"""
         # 加载配置文件（如果存在）
