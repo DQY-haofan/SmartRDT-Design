@@ -305,7 +305,8 @@ class EnhancedFitnessEvaluatorV3:
         # Calculate constraints (g(x) <= 0 for feasibility)
         recall = 1 - f2
         mtbf = 1/f6 if f6 > 1e-10 else 1e6
-        
+        max_insp_cycle = getattr(self.config, 'max_inspection_cycle_days', 180)
+
         constraints = np.array([
             f3 - self.config.max_latency_seconds,           # Latency constraint
             self.config.min_recall_threshold - recall,       # Recall constraint
