@@ -183,6 +183,7 @@ def save_ontology(ontology: 'OntologyManager', path: str) -> None:
 
     logger.warning("无法保存本体文件")
 
+
 def run_optimization(
         config: 'ConfigManager',
         ontology: 'OntologyManager',
@@ -239,7 +240,12 @@ def run_baselines(
         seed: int,
         run_dir: Path
 ) -> Dict[str, pd.DataFrame]:
-    """运行基线方法"""
+    """运行基线方法
+
+    【v3.1修复】使用正确的BaselineRunner API:
+    - run_all_methods() 返回 Dict[str, pd.DataFrame]
+    - run_method(name) 返回单个方法的 pd.DataFrame
+    """
 
     if BaselineRunner is None:
         logger.warning("BaselineRunner 不可用，跳过基线方法")
@@ -248,80 +254,85 @@ def run_baselines(
     logger.info("Running baseline methods...")
 
     try:
+        # 【v3.1修复】使用 ontology_graph=ontology.g
         runner = BaselineRunner(
-            ontology_graph=ontology.g,
+            ontology_graph=ontology.g,  # 传递Graph对象，不是OntologyManager
             config=config,
             seed=seed
         )
     except Exception as e:
         logger.warning(f"BaselineRunner 初始化失败: {e}")
+        import traceback
+        traceback.print_exc()
         return {}
 
     baseline_dfs = {}
 
-    # Random Search
+    # 【v3.1修复】使用正确的方法调用
+    # 方法1: 使用 run_all_methods() 一次运行所有baseline
     try:
-        logger.info("Running Random Search...")
-        if hasattr(runner, 'run_random_search'):
-            random_df = runner.run_random_search(n_samples=3000)
-        elif hasattr(runner, 'random_search'):
-            random_df = runner.random_search(n_samples=3000)
-        else:
-            random_df = None
+        logger.info("Running all baseline methods via run_all_methods()...")
+        all_results = runner.run_all_methods()
 
-        if random_df is not None:
-            random_df.to_csv(run_dir / 'baseline_random.csv', index=False)
-            baseline_dfs['Random'] = random_df
+        # 保存每个方法的结果
+        method_name_map = {
+            'random': 'Random',
+            'grid': 'Grid',
+            'weighted': 'Weighted',
+            'expert': 'Expert'
+        }
+
+        for method_key, display_name in method_name_map.items():
+            if method_key in all_results and len(all_results[method_key]) > 0:
+                df = all_results[method_key]
+                df.to_csv(run_dir / f'baseline_{method_key}.csv', index=False)
+                baseline_dfs[display_name] = df
+
+                # 统计可行解
+                feasible_count = df['is_feasible'].sum() if 'is_feasible' in df.columns else len(df)
+                logger.info(f"  {display_name}: {len(df)} total, {feasible_count} feasible")
+
     except Exception as e:
-        logger.warning(f"Random Search 失败: {e}")
+        logger.warning(f"run_all_methods 失败: {e}")
+        import traceback
+        traceback.print_exc()
 
-    # Grid Search
-    try:
-        logger.info("Running Grid Search...")
-        if hasattr(runner, 'run_grid_search'):
-            grid_df = runner.run_grid_search()
-        elif hasattr(runner, 'grid_search'):
-            grid_df = runner.grid_search()
-        else:
-            grid_df = None
+        # 方法2: 备用 - 逐个运行每个方法
+        logger.info("Trying individual method calls...")
 
-        if grid_df is not None:
-            grid_df.to_csv(run_dir / 'baseline_grid.csv', index=False)
-            baseline_dfs['Grid'] = grid_df
-    except Exception as e:
-        logger.warning(f"Grid Search 失败: {e}")
+        method_configs = [
+            ('random', 'Random', 'baseline_random.csv'),
+            ('grid', 'Grid', 'baseline_grid.csv'),
+            ('weighted', 'Weighted', 'baseline_weighted.csv'),
+            ('expert', 'Expert', 'baseline_expert.csv'),
+        ]
 
-    # Weighted Sum
-    try:
-        logger.info("Running Weighted Sum...")
-        if hasattr(runner, 'run_weighted_sum'):
-            weighted_df = runner.run_weighted_sum(n_weights=100)
-        elif hasattr(runner, 'weighted_sum'):
-            weighted_df = runner.weighted_sum(n_weights=100)
-        else:
-            weighted_df = None
+        for method_key, display_name, filename in method_configs:
+            try:
+                logger.info(f"Running {display_name}...")
+                if hasattr(runner, 'run_method'):
+                    df = runner.run_method(method_key)
+                elif hasattr(runner, 'methods') and method_key in runner.methods:
+                    df = runner.methods[method_key].optimize()
+                else:
+                    logger.warning(f"  无法找到方法: {method_key}")
+                    continue
 
-        if weighted_df is not None:
-            weighted_df.to_csv(run_dir / 'baseline_weighted.csv', index=False)
-            baseline_dfs['Weighted'] = weighted_df
-    except Exception as e:
-        logger.warning(f"Weighted Sum 失败: {e}")
+                if df is not None and len(df) > 0:
+                    df.to_csv(run_dir / filename, index=False)
+                    baseline_dfs[display_name] = df
+                    feasible_count = df['is_feasible'].sum() if 'is_feasible' in df.columns else len(df)
+                    logger.info(f"  {display_name}: {len(df)} total, {feasible_count} feasible")
 
-    # Expert Heuristic
-    try:
-        logger.info("Running Expert Heuristic...")
-        if hasattr(runner, 'run_expert_heuristic'):
-            expert_df = runner.run_expert_heuristic()
-        elif hasattr(runner, 'expert_heuristic'):
-            expert_df = runner.expert_heuristic()
-        else:
-            expert_df = None
+            except Exception as e2:
+                logger.warning(f"  {display_name} 失败: {e2}")
 
-        if expert_df is not None:
-            expert_df.to_csv(run_dir / 'baseline_expert.csv', index=False)
-            baseline_dfs['Expert'] = expert_df
-    except Exception as e:
-        logger.warning(f"Expert Heuristic 失败: {e}")
+    # 汇总统计
+    total_feasible = sum(
+        df['is_feasible'].sum() if 'is_feasible' in df.columns else len(df)
+        for df in baseline_dfs.values()
+    )
+    logger.info(f"Baseline methods complete: {len(baseline_dfs)} methods, {total_feasible} total feasible solutions")
 
     return baseline_dfs
 

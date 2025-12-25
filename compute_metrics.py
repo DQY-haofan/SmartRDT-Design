@@ -931,16 +931,25 @@ def compute_metrics_6d(pareto_path: str, output_dir: str = './results/metrics_6d
     nsga_hv = [r['HV_6D'] for r in hv_results if r['Method'] == 'NSGA-III'][0]
     best_baseline_hv = max([r['HV_6D'] for r in hv_results if r['Method'] != 'NSGA-III'], default=0)
 
+    # 【v3.1修复】检查coverage_results是否为空
+    if coverage_results and len(coverage_results) > 0:
+        coverage_statement = f"""
+2. Coverage (example for one baseline):
+   "The bidirectional coverage analysis shows C(NSGA,B)={coverage_results[0]['C(NSGA,Baseline)']:.1f}% 
+   and C(B,NSGA)={coverage_results[0]['C(Baseline,NSGA)']:.1f}%, indicating {coverage_results[0]['Interpretation'].lower()}."
+"""
+    else:
+        coverage_statement = """
+2. Coverage: No baseline methods available for comparison.
+   Please run baseline methods to enable coverage analysis.
+"""
+
     print(f"""
 Based on {n_obj}-objective analysis:
 
 1. Hypervolume: "NSGA-III achieves HV={nsga_hv:.4f} on the {n_obj}D objective space,
    compared to {best_baseline_hv:.4f} for the best baseline."
-
-2. Coverage (example for one baseline):
-   "The bidirectional coverage analysis shows C(NSGA,B)={coverage_results[0]['C(NSGA,Baseline)']:.1f}% 
-   and C(B,NSGA)={coverage_results[0]['C(Baseline,NSGA)']:.1f}%, indicating {coverage_results[0]['Interpretation'].lower()}."
-
+{coverage_statement}
 3. Contribution: "NSGA-III contributes {contrib.get('NSGA-III', 0):.1f}% of the combined 
    non-dominated front with {len(pareto_df)} solutions."
 

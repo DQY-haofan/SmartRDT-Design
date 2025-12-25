@@ -159,10 +159,20 @@ class Visualizer:
         fig = plt.figure(figsize=(14, 10))
         gs = GridSpec(2, 3, figure=fig, hspace=0.3, wspace=0.3)
 
-        # 合并所有baseline的可行解
-        all_baseline = pd.concat([
-            df[df['is_feasible']] for df in baseline_dfs.values() if len(df) > 0
-        ], ignore_index=True)
+        # 【v3.1修复】安全地合并所有baseline的可行解
+        baseline_feasible_list = []
+        for df in baseline_dfs.values():
+            if df is not None and len(df) > 0 and 'is_feasible' in df.columns:
+                feasible = df[df['is_feasible']]
+                if len(feasible) > 0:
+                    baseline_feasible_list.append(feasible)
+
+        if baseline_feasible_list:
+            all_baseline = pd.concat(baseline_feasible_list, ignore_index=True)
+        else:
+            # 如果没有baseline可行解，创建一个空的DataFrame与pareto_df结构相同
+            all_baseline = pareto_df.iloc[:0].copy()
+            logger.warning("No feasible baseline solutions found for visualization")
 
         # (a) Sensor类型分布对比
         ax1 = fig.add_subplot(gs[0, 0])
@@ -703,7 +713,7 @@ class Visualizer:
             latency_norm = 1 - (row['f3_latency_seconds'] - pareto_df['f3_latency_seconds'].min()) / \
                            (pareto_df['f3_latency_seconds'].max() - pareto_df['f3_latency_seconds'].min() + 1e-6)
             carbon_norm = 1 - (
-                        row['f5_carbon_emissions_kgCO2e_year'] - pareto_df['f5_carbon_emissions_kgCO2e_year'].min()) / \
+                    row['f5_carbon_emissions_kgCO2e_year'] - pareto_df['f5_carbon_emissions_kgCO2e_year'].min()) / \
                           (pareto_df['f5_carbon_emissions_kgCO2e_year'].max() - pareto_df[
                               'f5_carbon_emissions_kgCO2e_year'].min() + 1e-6)
             mtbf_norm = (row['system_MTBF_hours'] - pareto_df['system_MTBF_hours'].min()) / \
@@ -1135,6 +1145,7 @@ class Visualizer:
             logger.info(f"  Saved: {name} (png + pdf + csv)")
         else:
             logger.info(f"  Saved: {name}")
+
 
 # ============================================================================
 # 命令行接口
