@@ -889,9 +889,11 @@ class EnhancedFitnessEvaluatorV3:
         
         total_emissions = electricity_emissions + vehicle_emissions_kg + annual_mfg_emissions
         
-        # Bounds
-        total_emissions = np.clip(total_emissions, 100, 100000)
-        
+  
+
+        # 修改后：降低或移除下限
+        total_emissions = np.clip(total_emissions, 10, 100000)  # 或完全移除clip
+
         return total_emissions
     
     # =========================================================================
