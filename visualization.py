@@ -1120,14 +1120,21 @@ class Visualizer:
 
         logger.info(f"Table 3 saved")
 
-    def _save_fig(self, fig, name: str, formats: List[str] = ['pdf', 'png']):
-        """保存图表为多种格式"""
+    def _save_fig(self, fig, name: str, formats: List[str] = ['pdf', 'png'],
+                  data_df: pd.DataFrame = None):
+        """保存图表为多种格式 + CSV数据"""
         for fmt in formats:
             path = self.fig_dir / f'{name}.{fmt}'
             fig.savefig(path, format=fmt, dpi=300 if fmt == 'png' else None,
                         bbox_inches='tight', facecolor='white', edgecolor='none')
-        logger.info(f"  Saved: {name}")
 
+        # 保存CSV数据
+        if data_df is not None:
+            csv_path = self.fig_dir / f'{name}_data.csv'
+            data_df.to_csv(csv_path, index=False)
+            logger.info(f"  Saved: {name} (png + pdf + csv)")
+        else:
+            logger.info(f"  Saved: {name}")
 
 # ============================================================================
 # 命令行接口
