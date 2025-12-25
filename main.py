@@ -108,8 +108,15 @@ def setup_logging(run_dir: Path, debug: bool = False):
 
 def build_ontology(ontology: 'OntologyManager') -> None:
     """构建本体（兼容不同的方法名）"""
-    # 尝试不同的方法名
-    method_names = ['populate_from_csv', 'build_from_csv', 'load_from_csv', 'populate', 'build']
+    # 尝试不同的方法名（按优先级排序）
+    method_names = [
+        'populate_from_csv_files',  # 实际使用的方法名
+        'populate_from_csv',
+        'build_from_csv',
+        'load_from_csv',
+        'populate',
+        'build'
+    ]
 
     for method_name in method_names:
         if hasattr(ontology, method_name):
@@ -118,14 +125,18 @@ def build_ontology(ontology: 'OntologyManager') -> None:
                 method()
                 logger.info(f"本体构建成功 (使用 {method_name})")
                 return
-            except TypeError:
+            except TypeError as e:
                 # 方法可能需要参数
                 try:
                     method('data')
                     logger.info(f"本体构建成功 (使用 {method_name}('data'))")
                     return
                 except:
-                    pass
+                    logger.debug(f"{method_name} 调用失败: {e}")
+                    continue
+            except Exception as e:
+                logger.debug(f"{method_name} 调用失败: {e}")
+                continue
 
     # 如果都失败，抛出错误
     available_methods = [m for m in dir(ontology) if not m.startswith('_')]
@@ -134,7 +145,13 @@ def build_ontology(ontology: 'OntologyManager') -> None:
 
 def save_ontology(ontology: 'OntologyManager', path: str) -> None:
     """保存本体（兼容不同的方法名）"""
-    method_names = ['save', 'save_to_file', 'serialize', 'export']
+    method_names = [
+        'save_ontology',  # 实际使用的方法名
+        'save',
+        'save_to_file',
+        'serialize',
+        'export'
+    ]
 
     for method_name in method_names:
         if hasattr(ontology, method_name):
@@ -143,12 +160,12 @@ def save_ontology(ontology: 'OntologyManager', path: str) -> None:
                 method(path)
                 logger.info(f"本体已保存到 {path}")
                 return
-            except:
-                pass
+            except Exception as e:
+                logger.debug(f"{method_name} 保存失败: {e}")
+                continue
 
     logger.warning("无法保存本体文件")
-
-
+    
 def run_optimization(
         config: 'ConfigManager',
         ontology: 'OntologyManager',
