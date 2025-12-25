@@ -270,7 +270,7 @@ class EnhancedFitnessEvaluatorV3:
         """
         n_solutions = len(X)
         objectives = np.zeros((n_solutions, 6))
-        constraints = np.zeros((n_solutions, 5))
+        constraints = np.zeros((n_solutions, 6))
         
         for i, x in enumerate(X):
             try:
@@ -279,7 +279,7 @@ class EnhancedFitnessEvaluatorV3:
                 logger.error(f"Error evaluating solution {i}: {e}")
                 # Penalty values
                 objectives[i] = np.array([1e10, 1, 1000, 1000, 200000, 1])
-                constraints[i] = np.array([1000, 1, 1e10, 100000, -1000])
+                constraints[i] = np.array([1000, 1, 1e10, 100000, -1000, 1000])
         
         self._evaluation_count += n_solutions
         
@@ -308,12 +308,12 @@ class EnhancedFitnessEvaluatorV3:
         max_insp_cycle = getattr(self.config, 'max_inspection_cycle_days', 180)
 
         constraints = np.array([
-            f3 - self.config.max_latency_seconds,           # Latency constraint
-            self.config.min_recall_threshold - recall,       # Recall constraint
-            f1 - self.config.budget_cap_usd,                # Budget constraint
-            f5 - self.config.max_carbon_emissions_kgCO2e_year,  # Carbon constraint
-            self.config.min_mtbf_hours - mtbf  ,              # Reliability constraint
-            config['inspection_cycle'] - max_insp_cycle
+            f3 - self.config.max_latency_seconds,  # g1: Latency
+            self.config.min_recall_threshold - recall,  # g2: Recall
+            f1 - self.config.budget_cap_usd,  # g3: Budget
+            f5 - self.config.max_carbon_emissions_kgCO2e_year,  # g4: Carbon
+            self.config.min_mtbf_hours - mtbf,  # g5: MTBF
+            config['inspection_cycle'] - max_insp_cycle  # g6: Inspection ≤ 180
         ])
         
         return objectives, constraints
