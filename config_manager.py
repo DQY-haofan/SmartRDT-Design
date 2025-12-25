@@ -121,13 +121,21 @@ class ConfigManager:
         return cls(**filtered_dict)
 
     def to_dict(self) -> Dict:
-        """Convert to dictionary."""
-        return asdict(self)
+        """Convert to dictionary with JSON-serializable values."""
+        result = {}
+        for f in self.__dataclass_fields__:
+            value = getattr(self, f)
+            # 将 Path 对象转换为字符串
+            if hasattr(value, '__fspath__'):  # Path-like object
+                result[f] = str(value)
+            else:
+                result[f] = value
+        return result
 
     def save_snapshot(self, path: str):
         """Save configuration snapshot."""
         with open(path, 'w') as f:
-            json.dump(self.to_dict(), f, indent=2)
+            json.dump(self.to_dict(), f, indent=2, default=str)
 
     def __post_init__(self):
         """初始化后处理"""
