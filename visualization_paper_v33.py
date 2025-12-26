@@ -835,9 +835,12 @@ class PaperVisualizer:
             self.captions['fig8'] = "Ontology ablation study (placeholder—data not found)."
             return
 
-        variants = ablation_df['variant'].tolist()
+        variant_col = 'variant' if 'variant' in ablation_df.columns else 'mode_name'
+        feasible_col = 'feasible_rate' if 'feasible_rate' in ablation_df.columns else 'feasible_rate_true'
+
+        variants = ablation_df[variant_col].tolist()
         validity = ablation_df['validity_rate'].tolist()
-        feasible = ablation_df['feasible_rate'].tolist()
+        feasible = ablation_df[feasible_col].tolist()
         hv = ablation_df['hv_6d'].tolist()
 
         short_labels = []
