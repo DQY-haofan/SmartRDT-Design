@@ -1086,17 +1086,19 @@ class PaperVisualizer:
 # =============================================================================
 def main():
     import argparse
-    
+
     parser = argparse.ArgumentParser(description='Generate paper figures v3.3')
     parser.add_argument('--pareto', type=str, required=True, help='Path to Pareto CSV')
     parser.add_argument('--baselines', type=str, nargs='+', help='Baseline CSV paths')
     parser.add_argument('--output', type=str, default='./results/paper/figures_v33', help='Output dir')
-    
+    parser.add_argument('--run-dir', type=str, default=None, help='Run directory with optimization_history.json')  # 新增
+    parser.add_argument('--ablation-dir', type=str, default=None, help='Ablation results directory')  # 新增
+
     args = parser.parse_args()
-    
+
     # 加载数据
     pareto_df = pd.read_csv(args.pareto)
-    
+
     baseline_dfs = {}
     if args.baselines:
         for path in args.baselines:
@@ -1108,11 +1110,14 @@ def main():
         for f in pareto_dir.glob('baseline_*.csv'):
             name = f.stem.replace('baseline_', '')
             baseline_dfs[name] = pd.read_csv(f)
-    
+
+    # 自动推断 run_dir (如果未指定)
+    run_dir = args.run_dir or str(Path(args.pareto).parent)
+    ablation_dir = args.ablation_dir or './results/ablation_v3'
+
     # 生成图表
     visualizer = PaperVisualizer(output_dir=args.output)
-    visualizer.generate_all(pareto_df, baseline_dfs)
-
+    visualizer.generate_all(pareto_df, baseline_dfs, run_dir=run_dir, ablation_dir=ablation_dir)
 
 if __name__ == '__main__':
     main()
