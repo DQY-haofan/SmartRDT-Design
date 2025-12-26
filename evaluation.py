@@ -36,6 +36,41 @@ logger = logging.getLogger(__name__)
 RDTCO = Namespace("http://www.semanticweb.org/rmtwin/ontologies/rdtco#")
 EX = Namespace("http://example.org/rmtwin#")
 
+RISK_MODEL_CONFIG = {
+    "enabled": True,
+    "hazard_rate_per_km_day": 1e-5,
+    "consequence_usd": 25000,
+    "ref_delay_days": 30,
+    "alpha": 1.2,
+    "beta": 1.0,
+    "use_recall_coupling": False
+}
+
+
+def calculate_inspection_risk_cost_annual(
+        cycle_days: float,
+        road_km: float,
+        recall: float = 0.9,
+        risk_cfg: dict = None
+) -> float:
+    """Calculate annual risk cost from inspection cycle delay."""
+    if risk_cfg is None:
+        risk_cfg = RISK_MODEL_CONFIG
+
+    lam = float(risk_cfg.get("hazard_rate_per_km_day", 1e-5))
+    consequence = float(risk_cfg.get("consequence_usd", 25000))
+    ref_delay = float(risk_cfg.get("ref_delay_days", 30))
+    alpha = float(risk_cfg.get("alpha", 1.0))
+    beta = float(risk_cfg.get("beta", 1.0))
+    use_recall = bool(risk_cfg.get("use_recall_coupling", False))
+
+    incidents_year = lam * road_km * 365.0
+    delay = max(cycle_days / 2.0, 1.0)
+    delay_factor = (delay / ref_delay) ** alpha
+    residual = (max(1.0 - recall, 0.001) ** beta) if use_recall else 1.0
+
+    return incidents_year * consequence * delay_factor * residual
+
 
 class SolutionMapper:
     """
@@ -532,6 +567,18 @@ class EnhancedFitnessEvaluatorV3:
 
         # Sanity check
         assert validate_positive(total_cost, "total_cost"), f"Invalid cost: {total_cost}"
+
+        # v3.4: Add inspection cycle risk cost
+        if RISK_MODEL_CONFIG.get("enabled", True):
+            cycle = config.get("inspection_cycle", 180)
+            road_km = getattr(self.config, 'road_network_length_km', 1000)
+            annual_risk = calculate_inspection_risk_cost_annual(
+                cycle_days=cycle,
+                road_km=road_km,
+                recall=0.9,
+                risk_cfg=RISK_MODEL_CONFIG
+            )
+            total_cost += annual_risk * planning_years
 
         return total_cost
     # =========================================================================
