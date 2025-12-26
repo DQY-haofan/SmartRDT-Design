@@ -182,7 +182,9 @@ class PaperVisualizer:
     
     def generate_all(self, pareto_df: pd.DataFrame, 
                      baseline_dfs: Dict[str, pd.DataFrame] = None,
-                     config: dict = None):
+                     config: dict = None,
+                     run_dir: str = None,
+                     ablation_dir: str = None):
         """
         生成所有论文图表
         
@@ -207,8 +209,8 @@ class PaperVisualizer:
         self.fig4_discrete_distributions(pareto_df)
         self.fig5_technology_dominance(pareto_df, baseline_dfs)
         self.fig6_baseline_comparison(pareto_df, baseline_dfs)
-        self.fig7_convergence_placeholder()
-        self.fig8_ablation_placeholder()
+        self.fig7_convergence(run_dir)
+        self.fig8_ablation(ablation_dir)
         
         # 补充图
         self.figS1_pairwise_tradeoffs(pareto_df)
@@ -734,34 +736,171 @@ class PaperVisualizer:
     # =========================================================================
     # Fig 7 & 8: Placeholders
     # =========================================================================
-    def fig7_convergence_placeholder(self):
-        """收敛分析占位符"""
-        fig, ax = plt.subplots(figsize=(8, 5))
-        ax.text(0.5, 0.5, 'Convergence Analysis\n\n(Requires optimization_history.json)',
-               ha='center', va='center', fontsize=12,
-               bbox=dict(boxstyle='round', facecolor='lightgray', alpha=0.5))
-        ax.axis('off')
-        ax.set_title('Convergence Analysis', fontsize=12, fontweight='bold')
-        
-        self._save_fig(fig, 'fig7_convergence_placeholder',
-                       notes='Requires optimization history data')
-        
-        self.captions['fig7'] = "Convergence analysis (placeholder—requires optimization history)."
-    
-    def fig8_ablation_placeholder(self):
-        """消融实验占位符"""
-        fig, ax = plt.subplots(figsize=(8, 5))
-        ax.text(0.5, 0.5, 'Ontology Ablation Study\n\n(Requires ablation_results_v3.csv)',
-               ha='center', va='center', fontsize=12,
-               bbox=dict(boxstyle='round', facecolor='lightgray', alpha=0.5))
-        ax.axis('off')
-        ax.set_title('Ontology Ablation Study', fontsize=12, fontweight='bold')
-        
-        self._save_fig(fig, 'fig8_ablation_placeholder',
-                       notes='Requires ablation results data')
-        
-        self.captions['fig8'] = "Ontology ablation study (placeholder—requires ablation data)."
-    
+    def fig7_convergence(self, run_dir: str = None):
+        """收敛分析 - 读取真实数据"""
+        import glob
+
+        history_data = None
+        possible_paths = []
+
+        if run_dir:
+            possible_paths.append(Path(run_dir) / 'optimization_history.json')
+
+        possible_paths.extend([
+            Path('./results/runs') / 'optimization_history.json',
+        ])
+
+        for p in glob.glob('./results/runs/*_seed*/optimization_history.json'):
+            possible_paths.append(Path(p))
+
+        for p in possible_paths:
+            if p.exists():
+                with open(p, 'r') as f:
+                    history_data = json.load(f)
+                logger.info(f"  Loaded history from: {p}")
+                break
+
+        if history_data is None or 'generations' not in history_data:
+            fig, ax = plt.subplots(figsize=(10, 5))
+            ax.text(0.5, 0.5, 'Convergence Analysis\n\n(Requires optimization_history.json)',
+                    ha='center', va='center', fontsize=12,
+                    bbox=dict(boxstyle='round', facecolor='lightgray', alpha=0.5))
+            ax.axis('off')
+            ax.set_title('Convergence Analysis', fontsize=12, fontweight='bold')
+            self._save_fig(fig, 'fig7_convergence_placeholder', notes='Data not found')
+            self.captions['fig7'] = "Convergence analysis (placeholder—data not found)."
+            return
+
+        generations = history_data['generations']
+        gens = [g['generation'] for g in generations]
+        n_nds = [g.get('n_nds', 0) for g in generations]
+        cv_avg = [g.get('cv_avg', 0) for g in generations]
+
+        fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+        ax1 = axes[0]
+        ax1.plot(gens, n_nds, 'b-o', linewidth=2, markersize=5)
+        ax1.fill_between(gens, 0, n_nds, alpha=0.2, color='blue')
+        ax1.set_xlabel('Generation', fontsize=11)
+        ax1.set_ylabel('Number of Non-dominated Solutions', fontsize=11)
+        ax1.set_title('(a) Pareto Front Evolution', fontsize=11, fontweight='bold')
+        ax1.grid(True, alpha=0.3, linestyle='--')
+
+        ax2 = axes[1]
+        ax2.plot(gens, cv_avg, 'r-s', linewidth=2, markersize=5)
+        ax2.fill_between(gens, 0, cv_avg, alpha=0.2, color='red')
+        ax2.set_xlabel('Generation', fontsize=11)
+        ax2.set_ylabel('Constraint Violation (avg)', fontsize=11)
+        ax2.set_title('(b) Constraint Satisfaction', fontsize=11, fontweight='bold')
+        ax2.grid(True, alpha=0.3, linestyle='--')
+        if max(cv_avg) > 0.1:
+            ax2.set_yscale('log')
+
+        plt.suptitle('Convergence Analysis', fontsize=13, fontweight='bold', y=1.02)
+        plt.tight_layout()
+
+        self._save_fig(fig, 'fig7_convergence',
+                       inputs=['optimization_history.json'],
+                       fields=['generation', 'n_nds', 'cv_avg'])
+
+        self.captions['fig7'] = f"Convergence analysis over {len(generations)} generations."
+
+    def fig8_ablation(self, ablation_dir: str = None):
+        """消融实验 - 读取真实数据"""
+
+        ablation_df = None
+        possible_paths = [
+            Path('./results/ablation_v3/ablation_results_v3.csv'),
+            Path('./results/ablation/ablation_results_v3.csv'),
+            Path('./ablation_results_v3.csv'),
+        ]
+
+        if ablation_dir:
+            possible_paths.insert(0, Path(ablation_dir) / 'ablation_results_v3.csv')
+
+        for p in possible_paths:
+            if p.exists():
+                ablation_df = pd.read_csv(p)
+                logger.info(f"  Loaded ablation from: {p}")
+                break
+
+        if ablation_df is None or len(ablation_df) == 0:
+            fig, ax = plt.subplots(figsize=(10, 5))
+            ax.text(0.5, 0.5, 'Ontology Ablation Study\n\n(Requires ablation_results_v3.csv)',
+                    ha='center', va='center', fontsize=12,
+                    bbox=dict(boxstyle='round', facecolor='lightgray', alpha=0.5))
+            ax.axis('off')
+            ax.set_title('Ontology Ablation Study', fontsize=12, fontweight='bold')
+            self._save_fig(fig, 'fig8_ablation_placeholder', notes='Data not found')
+            self.captions['fig8'] = "Ontology ablation study (placeholder—data not found)."
+            return
+
+        variants = ablation_df['variant'].tolist()
+        validity = ablation_df['validity_rate'].tolist()
+        feasible = ablation_df['feasible_rate'].tolist()
+        hv = ablation_df['hv_6d'].tolist()
+
+        short_labels = []
+        for v in variants:
+            if 'Full' in v:
+                short_labels.append('Full\nOntology')
+            elif 'Type' in v:
+                short_labels.append('No Type\nInference')
+            elif 'Compat' in v:
+                short_labels.append('No Compat\nCheck')
+            elif 'SHACL' in v:
+                short_labels.append('No SHACL')
+            elif 'Minimal' in v:
+                short_labels.append('Minimal')
+            else:
+                short_labels.append(v[:10])
+
+        fig, axes = plt.subplots(1, 3, figsize=(14, 5))
+        x = np.arange(len(variants))
+        colors = ['#2ecc71', '#3498db', '#9b59b6', '#e74c3c', '#95a5a6']
+
+        ax1 = axes[0]
+        ax1.bar(x, validity, color=colors[:len(x)], edgecolor='black', linewidth=0.5)
+        ax1.set_ylabel('Validity Rate', fontsize=11)
+        ax1.set_title('(a) Configuration Validity', fontsize=11, fontweight='bold')
+        ax1.set_xticks(x)
+        ax1.set_xticklabels(short_labels, fontsize=8)
+        ax1.set_ylim(0, 1.15)
+        for i, v in enumerate(validity):
+            ax1.text(i, v + 0.03, f'{v:.0%}', ha='center', fontsize=9, fontweight='bold')
+        ax1.grid(axis='y', alpha=0.3, linestyle='--')
+
+        ax2 = axes[1]
+        ax2.bar(x, feasible, color=colors[:len(x)], edgecolor='black', linewidth=0.5)
+        ax2.set_ylabel('Feasible Rate', fontsize=11)
+        ax2.set_title('(b) Constraint Feasibility', fontsize=11, fontweight='bold')
+        ax2.set_xticks(x)
+        ax2.set_xticklabels(short_labels, fontsize=8)
+        ax2.set_ylim(0, 1.15)
+        for i, v in enumerate(feasible):
+            ax2.text(i, v + 0.03, f'{v:.0%}', ha='center', fontsize=9, fontweight='bold')
+        ax2.grid(axis='y', alpha=0.3, linestyle='--')
+
+        ax3 = axes[2]
+        ax3.bar(x, hv, color=colors[:len(x)], edgecolor='black', linewidth=0.5)
+        ax3.set_ylabel('Hypervolume (6D)', fontsize=11)
+        ax3.set_title('(c) Solution Quality', fontsize=11, fontweight='bold')
+        ax3.set_xticks(x)
+        ax3.set_xticklabels(short_labels, fontsize=8)
+        ax3.set_ylim(0, max(hv) * 1.25 if hv else 1)
+        for i, v in enumerate(hv):
+            ax3.text(i, v + 0.02, f'{v:.2f}', ha='center', fontsize=9, fontweight='bold')
+        ax3.grid(axis='y', alpha=0.3, linestyle='--')
+
+        plt.suptitle('Ontology Ablation Study', fontsize=13, fontweight='bold', y=1.02)
+        plt.tight_layout()
+
+        self._save_fig(fig, 'fig8_ablation',
+                       inputs=['ablation_results_v3.csv'],
+                       fields=['variant', 'validity_rate', 'feasible_rate', 'hv_6d'])
+
+        self.captions['fig8'] = f"Ontology ablation study comparing {len(variants)} variants."
+
     # =========================================================================
     # Supplementary Figures
     # =========================================================================
