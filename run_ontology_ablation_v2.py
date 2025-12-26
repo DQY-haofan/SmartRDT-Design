@@ -364,8 +364,8 @@ class AblationOptimizationRunner:
         self._build_ontology()
 
         # 完整本体评估器（用于验证）
-        from evaluation import FitnessEvaluator
-        self.full_evaluator = FitnessEvaluator(self.ontology.g, self.config)
+        from evaluation import EnhancedFitnessEvaluatorV3
+        self.full_evaluator = EnhancedFitnessEvaluatorV3(self.ontology.g, self.config)
 
     def _build_ontology(self):
         """构建本体"""
