@@ -92,13 +92,18 @@ class AblatedProblem(Problem):
         self.ablation = ablation_config
         self.rng = np.random.RandomState(seed)
 
-        # 缓存属性用于添加噪声
-        self._original_query = None
+        # 动态检测约束数量
+        test_x = np.random.random((1, 11))
+        test_F, test_G = base_evaluator.evaluate_batch(test_x)
+        n_obj = test_F.shape[1]
+        n_constr = test_G.shape[1]
+
+        logger.info(f"Detected: {n_obj} objectives, {n_constr} constraints")
 
         super().__init__(
             n_var=11,
-            n_obj=6,
-            n_ieq_constr=5,
+            n_obj=n_obj,
+            n_ieq_constr=n_constr,
             xl=np.zeros(11),
             xu=np.ones(11)
         )
@@ -337,6 +342,9 @@ class AblationOptimizationRunner:
         X = np.random.random((1000, 11))
         F, G = self.base_evaluator.evaluate_batch(X)
 
+        n_constr = G.shape[1]
+        logger.info(f"Detected {n_constr} constraints")
+
         feasible_mask = np.all(G <= 0, axis=1)
         n_feasible = feasible_mask.sum()
 
@@ -351,11 +359,12 @@ class AblationOptimizationRunner:
         else:
             # 打印约束违反情况
             logger.info("No feasible solutions found! Constraint violations:")
-            logger.info(f"  Latency (G0): {(G[:, 0] > 0).sum()} violations, max={G[:, 0].max():.1f}")
-            logger.info(f"  Recall (G1): {(G[:, 1] > 0).sum()} violations, max={G[:, 1].max():.3f}")
-            logger.info(f"  Budget (G2): {(G[:, 2] > 0).sum()} violations, max={G[:, 2].max():.0f}")
-            logger.info(f"  Carbon (G3): {(G[:, 3] > 0).sum()} violations, max={G[:, 3].max():.0f}")
-            logger.info(f"  MTBF (G4): {(G[:, 4] > 0).sum()} violations, max={G[:, 4].max():.0f}")
+            constraint_names = ['Latency', 'Recall', 'Budget', 'Carbon', 'MTBF', 'Other']
+            for i in range(n_constr):
+                name = constraint_names[i] if i < len(constraint_names) else f'G{i}'
+                violations = (G[:, i] > 0).sum()
+                max_viol = G[:, i].max()
+                logger.info(f"  {name} (G{i}): {violations} violations, max={max_viol:.2f}")
 
         return n_feasible
 
