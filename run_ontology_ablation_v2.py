@@ -87,18 +87,12 @@ class AblatedProblem(Problem):
     消融优化问题 - 包装原始评估器并添加消融逻辑
     """
 
-    def __init__(self, base_evaluator, ablation_config: Dict, seed: int = 42):
+    def __init__(self, base_evaluator, ablation_config: Dict, seed: int = 42, n_obj: int = 6, n_constr: int = 6):
         self.base_evaluator = base_evaluator
         self.ablation = ablation_config
         self.rng = np.random.RandomState(seed)
-
-        # 动态检测约束数量
-        test_x = np.random.random((1, 11))
-        test_F, test_G = base_evaluator.evaluate_batch(test_x)
-        n_obj = test_F.shape[1]
-        n_constr = test_G.shape[1]
-
-        logger.info(f"Detected: {n_obj} objectives, {n_constr} constraints")
+        self.n_obj_actual = n_obj
+        self.n_constr_actual = n_constr
 
         super().__init__(
             n_var=11,
@@ -108,7 +102,7 @@ class AblatedProblem(Problem):
             xu=np.ones(11)
         )
 
-        logger.info(f"AblatedProblem: {ablation_config.get('name', 'Unknown')}")
+        logger.info(f"AblatedProblem: {ablation_config.get('name', 'Unknown')} ({n_obj} obj, {n_constr} constr)")
 
     def _evaluate(self, X, out, *args, **kwargs):
         """评估 - 使用消融后的逻辑"""
@@ -208,8 +202,16 @@ class AblationOptimizationRunner:
         start_time = time.time()
 
         # 创建消融问题
-        problem = AblatedProblem(self.base_evaluator, mode_config, seed=self.seed)
+        # 检测约束数量
+        test_x = np.random.random((1, 11))
+        test_F, test_G = self.base_evaluator.evaluate_batch(test_x)
+        n_obj = test_F.shape[1]
+        n_constr = test_G.shape[1]
+        logger.info(f"  Detected: {n_obj} objectives, {n_constr} constraints")
 
+        # 创建消融问题
+        problem = AblatedProblem(self.base_evaluator, mode_config, seed=self.seed,
+                                 n_obj=n_obj, n_constr=n_constr)
         # 配置 NSGA-III
         ref_dirs = get_reference_directions("das-dennis", 6, n_partitions=3)
         pop_size = max(100, len(ref_dirs) + 50)
