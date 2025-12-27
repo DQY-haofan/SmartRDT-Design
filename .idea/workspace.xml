@@ -4,7 +4,9 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="6bd56078-6729-4b9c-95bb-0d85200829f3" name="更改" comment="" />
+    <list default="true" id="6bd56078-6729-4b9c-95bb-0d85200829f3" name="更改" comment="">
+      <change beforePath="$PROJECT_DIR$/run_ontology_ablation_v2.py" beforeDir="false" afterPath="$PROJECT_DIR$/run_ontology_ablation_v2.py" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
