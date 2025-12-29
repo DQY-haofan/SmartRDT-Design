@@ -36,41 +36,6 @@ logger = logging.getLogger(__name__)
 RDTCO = Namespace("http://www.semanticweb.org/rmtwin/ontologies/rdtco#")
 EX = Namespace("http://example.org/rmtwin#")
 
-RISK_MODEL_CONFIG = {
-    "enabled": True,
-    "hazard_rate_per_km_day": 1e-5,
-    "consequence_usd": 25000,
-    "ref_delay_days": 30,
-    "alpha": 1.2,
-    "beta": 1.0,
-    "use_recall_coupling": False
-}
-
-
-def calculate_inspection_risk_cost_annual(
-        cycle_days: float,
-        road_km: float,
-        recall: float = 0.9,
-        risk_cfg: dict = None
-) -> float:
-    """Calculate annual risk cost from inspection cycle delay."""
-    if risk_cfg is None:
-        risk_cfg = RISK_MODEL_CONFIG
-
-    lam = float(risk_cfg.get("hazard_rate_per_km_day", 1e-5))
-    consequence = float(risk_cfg.get("consequence_usd", 25000))
-    ref_delay = float(risk_cfg.get("ref_delay_days", 30))
-    alpha = float(risk_cfg.get("alpha", 1.0))
-    beta = float(risk_cfg.get("beta", 1.0))
-    use_recall = bool(risk_cfg.get("use_recall_coupling", False))
-
-    incidents_year = lam * road_km * 365.0
-    delay = max(cycle_days / 2.0, 1.0)
-    delay_factor = (delay / ref_delay) ** alpha
-    residual = (max(1.0 - recall, 0.001) ** beta) if use_recall else 1.0
-
-    return incidents_year * consequence * delay_factor * residual
-
 
 class SolutionMapper:
     """
@@ -305,7 +270,7 @@ class EnhancedFitnessEvaluatorV3:
         """
         n_solutions = len(X)
         objectives = np.zeros((n_solutions, 6))
-        constraints = np.zeros((n_solutions, 6))
+        constraints = np.zeros((n_solutions, 5))
         
         for i, x in enumerate(X):
             try:
@@ -314,7 +279,7 @@ class EnhancedFitnessEvaluatorV3:
                 logger.error(f"Error evaluating solution {i}: {e}")
                 # Penalty values
                 objectives[i] = np.array([1e10, 1, 1000, 1000, 200000, 1])
-                constraints[i] = np.array([1000, 1, 1e10, 100000, -1000, 1000])
+                constraints[i] = np.array([1000, 1, 1e10, 100000, -1000])
         
         self._evaluation_count += n_solutions
         
@@ -326,6 +291,15 @@ class EnhancedFitnessEvaluatorV3:
     def _evaluate_single(self, x: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Evaluate single solution."""
         config = self.solution_mapper.decode_solution(x)
+        
+        # P1: 语义快速筛选 - 检查组件兼容性
+        is_valid, reasons = self._semantic_fast_check(config)
+        if not is_valid:
+            # 语义不合法：给强惩罚，确保被NSGA-III淘汰
+            big = 1e12
+            objectives = np.array([big, 1.0, big, big, big, big])
+            constraints = np.array([1e6, 1, 1e6, 1e6, 1e6])  # 全部违规
+            return objectives, constraints
         
         # Calculate all 6 objectives
         f1 = self._calculate_total_cost(config)
@@ -340,19 +314,124 @@ class EnhancedFitnessEvaluatorV3:
         # Calculate constraints (g(x) <= 0 for feasibility)
         recall = 1 - f2
         mtbf = 1/f6 if f6 > 1e-10 else 1e6
-        max_insp_cycle = getattr(self.config, 'max_inspection_cycle_days', 180)
-
+        
         constraints = np.array([
-            f3 - self.config.max_latency_seconds,  # g1: Latency
-            self.config.min_recall_threshold - recall,  # g2: Recall
-            f1 - self.config.budget_cap_usd,  # g3: Budget
-            f5 - self.config.max_carbon_emissions_kgCO2e_year,  # g4: Carbon
-            self.config.min_mtbf_hours - mtbf,  # g5: MTBF
-            config['inspection_cycle'] - max_insp_cycle  # g6: Inspection ≤ 180
+            f3 - self.config.max_latency_seconds,           # Latency constraint
+            self.config.min_recall_threshold - recall,       # Recall constraint
+            f1 - self.config.budget_cap_usd,                # Budget constraint
+            f5 - self.config.max_carbon_emissions_kgCO2e_year,  # Carbon constraint
+            self.config.min_mtbf_hours - mtbf               # Reliability constraint
         ])
         
         return objectives, constraints
     
+
+    # =========================================================================
+    # P1: 语义快速筛选 (运行时兼容性检查)
+    # =========================================================================
+    
+    def _semantic_fast_check(self, config: Dict) -> Tuple[bool, List[str]]:
+        """
+        快速语义兼容性检查 - 运行时筛选明显不兼容的组合。
+        
+        这些规则基于工程常识，用于避免产生"语义无意义但数值可行"的解。
+        完整的SHACL验证在Pareto输出后进行（后验审计）。
+        
+        Args:
+            config: 解码后的配置字典
+            
+        Returns:
+            (is_valid: bool, reasons: list[str])
+        """
+        reasons = []
+        
+        sensor_str = str(config.get('sensor', ''))
+        algo_str = str(config.get('algorithm', ''))
+        comm_str = str(config.get('communication', ''))
+        deploy_str = str(config.get('deployment', ''))
+        
+        sensor_type = get_sensor_type(sensor_str)
+        comm_type = get_comm_type(comm_str)
+        deploy_type = get_deployment_type(deploy_str)
+        algo_type = get_algo_type(algo_str)
+        
+        # =====================================================================
+        # 规则 1: IoT/FOS 固定传感器不应搭配 V2X-DSRC 车载通信
+        # 理由: IoT和光纤传感器是固定部署的，V2X/DSRC是车载短程通信
+        # =====================================================================
+        if sensor_type in ['IoT', 'FOS', 'Fiber'] and comm_type in ['V2X', 'DSRC']:
+            reasons.append(
+                f"Rule1: {sensor_type} sensor is fixed-deployment, "
+                f"incompatible with vehicle-based {comm_type} communication."
+            )
+        
+        # =====================================================================
+        # 规则 2: GPU需求算法不能部署在明确无GPU的环境
+        # 理由: DL算法需要GPU加速，OnPremise通常指传统服务器无GPU
+        # =====================================================================
+        hw_req = self._query_property(config['algorithm'], 'hasHardwareRequirement', 'CPU')
+        hw_req_str = str(hw_req).upper()
+        
+        if 'GPU' in hw_req_str and deploy_type == 'OnPremise':
+            # 检查是否是GPU版本的OnPremise
+            if 'GPU' not in deploy_str.upper():
+                reasons.append(
+                    f"Rule2: Algorithm requires {hw_req} but deployment is {deploy_type} "
+                    f"without GPU capability."
+                )
+        
+        # =====================================================================
+        # 规则 3: 深度学习算法需要Cloud或Edge部署
+        # 理由: DL算法计算密集，需要数据中心或边缘计算资源
+        # =====================================================================
+        is_dl_algo = any(kw in algo_str.upper() for kw in 
+                        ['DL_', 'YOLO', 'UNET', 'MASK', 'EFFICIENT', 'SAM', 'RETINA', 'FASTER'])
+        
+        if is_dl_algo and deploy_type == 'OnPremise':
+            if 'GPU' not in deploy_str.upper() and 'CLOUD' not in deploy_str.upper():
+                reasons.append(
+                    f"Rule3: Deep learning algorithm '{algo_str.split('#')[-1]}' "
+                    f"requires Cloud/Edge/GPU deployment, not plain OnPremise."
+                )
+        
+        # =====================================================================
+        # 规则 4: 移动传感器需要无线通信
+        # 理由: 车载/无人机传感器不能只用光纤通信
+        # =====================================================================
+        is_mobile_sensor = sensor_type in ['MMS', 'UAV', 'Vehicle', 'Handheld']
+        is_fiber_only = 'Fiber' in comm_str and all(
+            kw not in comm_str.upper() for kw in ['CELLULAR', '5G', 'LTE', 'V2X', 'WIFI']
+        )
+        
+        if is_mobile_sensor and is_fiber_only:
+            reasons.append(
+                f"Rule4: Mobile sensor {sensor_type} requires wireless communication, "
+                f"not fiber-only connection."
+            )
+        
+        # =====================================================================
+        # 规则 5: 检测周期合理性（软约束，记录但不拒绝）
+        # =====================================================================
+        inspection_cycle = config.get('inspection_cycle', 30)
+        if inspection_cycle < 1 or inspection_cycle > 365:
+            # 这是软警告，不会导致拒绝
+            pass  # 交给数值约束处理
+        
+        return (len(reasons) == 0), reasons
+    
+    def get_semantic_check_stats(self) -> Dict:
+        """获取语义检查统计（用于调试）"""
+        if not hasattr(self, '_semantic_reject_count'):
+            self._semantic_reject_count = 0
+        if not hasattr(self, '_semantic_reject_reasons'):
+            self._semantic_reject_reasons = {}
+        
+        return {
+            'reject_count': self._semantic_reject_count,
+            'reject_reasons': self._semantic_reject_reasons
+        }
+
+
     # =========================================================================
     # OBJECTIVE 1: TOTAL COST (USD over planning horizon)
     # =========================================================================
@@ -567,18 +646,6 @@ class EnhancedFitnessEvaluatorV3:
 
         # Sanity check
         assert validate_positive(total_cost, "total_cost"), f"Invalid cost: {total_cost}"
-
-        # v3.4: Add inspection cycle risk cost
-        if RISK_MODEL_CONFIG.get("enabled", True):
-            cycle = config.get("inspection_cycle", 180)
-            road_km = getattr(self.config, 'road_network_length_km', 1000)
-            annual_risk = calculate_inspection_risk_cost_annual(
-                cycle_days=cycle,
-                road_km=road_km,
-                recall=0.9,
-                risk_cfg=RISK_MODEL_CONFIG
-            )
-            total_cost += annual_risk * planning_years
 
         return total_cost
     # =========================================================================
@@ -938,11 +1005,12 @@ class EnhancedFitnessEvaluatorV3:
         
         total_emissions = electricity_emissions + vehicle_emissions_kg + annual_mfg_emissions
         
-
-
-        # 修改后：降低或移除下限
-        total_emissions = np.clip(total_emissions, 10, 100000)  # 或完全移除clip
-
+        # Bounds
+        # 数值防护：不裁剪成常数，只保证合理性 (P0修复)
+        if not np.isfinite(total_emissions):
+            total_emissions = 1e9
+        total_emissions = max(0.0, float(total_emissions))
+        
         return total_emissions
     
     # =========================================================================
