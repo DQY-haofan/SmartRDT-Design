@@ -1,0 +1,10 @@
+{
+  "run_dir": "results/runs/20251229_211228_seed42",
+  "seed": 42,
+  "pareto_solutions": 26,
+  "baseline_feasible": 714,
+  "validation_passed": true,
+  "total_time_seconds": 311.1370213031769,
+  "min_cost": 474609.32136516116,
+  "max_cost": 8113704.877572647
+}

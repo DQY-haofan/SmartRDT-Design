@@ -1,0 +1,29 @@
+======================================================================
+RMTwin Optimization Report v3.1
+======================================================================
+
+Run Directory: results/runs/20251229_211228_seed42
+Timestamp: 2025-12-29 21:17:39
+Total Time: 311.14s
+
+Configuration:
+  Road Network: 200.0 km
+  Planning Horizon: 10 years
+  Budget Cap: $10,000,000
+  Min Recall: 0.8
+  Max Latency: 200.0s
+  Fixed Sensor Density: 1.0/km
+  Mobile Coverage: 80.0 km/day
+
+Pareto Front Summary:
+  Solutions: 26
+  Cost Range: $474,609 - $8,113,705
+  Recall Range: 0.8003 - 0.9600
+
+Baseline Comparison:
+  Random: 600/3000 feasible, min_cost=$430,655
+  Grid: 12/192 feasible, min_cost=$4,687,740
+  Weighted: 100/100 feasible, min_cost=$789,329
+  Expert: 2/25 feasible, min_cost=$4,344,870
+
+======================================================================
