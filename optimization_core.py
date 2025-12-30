@@ -127,7 +127,7 @@ class RMTwinProblem(Problem):
         # Problem dimensions
         n_var = 11  # Decision variables
         n_obj = 6  # Objectives
-        n_constr = 6  # Constraints
+        n_constr = 5  # Constraints
 
         # Variable bounds [0, 1]
         xl = np.zeros(n_var)
