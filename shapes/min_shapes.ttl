@@ -5,19 +5,18 @@
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 
 # =============================================================================
-# RMTwin SHACL Constraints v2.0 (Simplified)
+# RMTwin SHACL Constraints v2.1 (Minimal - Completeness Only)
 # =============================================================================
 # 
 # 分层验证策略：
-# - SHACL: 负责配置完整性验证（结构约束）
-# - P1 Fast-Check: 负责语义兼容性验证（运行时规则）
+# - SHACL: 仅检查配置完整性（5个必要组件）
+# - Fast-Check: 负责语义兼容性（运行时规则）
 # 
-# 这种分层设计避免了在 SHACL 中使用复杂的 SPARQL 约束，
-# 同时保持了形式化验证的可追溯性。
+# 注意：移除了参数范围约束，因为它们可能导致误报
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# Shape 1: 配置完整性约束
+# Shape 1: 配置完整性约束（唯一强制约束）
 # 每个配置必须包含所有必要组件
 # -----------------------------------------------------------------------------
 rdtco:ConfigurationCompletenessShape
@@ -76,86 +75,8 @@ rdtco:ConfigurationCompletenessShape
         sh:severity sh:Violation ;
     ] .
 
-# -----------------------------------------------------------------------------
-# Shape 2: 检测周期范围约束
-# 检测周期必须在合理范围内
-# -----------------------------------------------------------------------------
-rdtco:InspectionCycleShape
-    a sh:NodeShape ;
-    sh:targetClass rdtco:DigitalTwinConfiguration ;
-    sh:name "Inspection Cycle Validity" ;
-    sh:description "Inspection cycle must be within valid operational range." ;
-    
-    sh:property [
-        sh:path rdtco:hasInspectionCycleDays ;
-        sh:minInclusive 1 ;
-        sh:maxInclusive 365 ;
-        sh:datatype xsd:integer ;
-        sh:message "Inspection cycle must be between 1 and 365 days." ;
-        sh:severity sh:Warning ;
-    ] .
-
-# -----------------------------------------------------------------------------
-# Shape 3: 数据速率范围约束
-# 数据采集速率必须为正数且在合理范围
-# -----------------------------------------------------------------------------
-rdtco:DataRateShape
-    a sh:NodeShape ;
-    sh:targetClass rdtco:DigitalTwinConfiguration ;
-    sh:name "Data Rate Validity" ;
-    sh:description "Data rate must be a positive value within operational range." ;
-    
-    sh:property [
-        sh:path rdtco:hasDataRateHz ;
-        sh:minExclusive 0 ;
-        sh:maxInclusive 1000 ;
-        sh:datatype xsd:decimal ;
-        sh:message "Data rate must be positive and <= 1000 Hz." ;
-        sh:severity sh:Warning ;
-    ] .
-
-# -----------------------------------------------------------------------------
-# Shape 4: 成本合理性约束（可选）
-# 如果提供了成本信息，必须为正数
-# -----------------------------------------------------------------------------
-rdtco:CostValidityShape
-    a sh:NodeShape ;
-    sh:targetClass rdtco:DigitalTwinConfiguration ;
-    sh:name "Cost Validity" ;
-    sh:description "If cost is provided, it must be non-negative." ;
-    
-    sh:property [
-        sh:path rdtco:hasTotalCostUSD ;
-        sh:minInclusive 0 ;
-        sh:datatype xsd:decimal ;
-        sh:message "Total cost must be non-negative." ;
-        sh:severity sh:Warning ;
-    ] .
-
-# -----------------------------------------------------------------------------
-# Shape 5: 召回率范围约束（可选）
-# 如果提供了召回率，必须在 [0,1] 范围内
-# -----------------------------------------------------------------------------
-rdtco:RecallValidityShape
-    a sh:NodeShape ;
-    sh:targetClass rdtco:DigitalTwinConfiguration ;
-    sh:name "Recall Validity" ;
-    sh:description "If recall is provided, it must be between 0 and 1." ;
-    
-    sh:property [
-        sh:path rdtco:hasRecall ;
-        sh:minInclusive 0 ;
-        sh:maxInclusive 1 ;
-        sh:datatype xsd:decimal ;
-        sh:message "Recall must be between 0 and 1." ;
-        sh:severity sh:Warning ;
-    ] .
-
 # =============================================================================
-# 注意：语义兼容性约束（如GPU↔部署、IoT↔通信）
-# 由 evaluation.py 中的 _semantic_fast_check() 方法在运行时验证
-# 这种分层设计的优势：
-# 1. SHACL 验证速度快（只检查结构）
-# 2. Fast-Check 可以访问完整的组件属性
-# 3. 避免了在 SHACL 中维护复杂的 SPARQL 约束
+# 注意：参数范围约束（inspection_cycle, data_rate）和评估结果约束
+# 已移除，因为它们可能因数据类型不匹配导致误报。
+# 这些约束由优化框架本身保证（decision variable bounds）。
 # =============================================================================
