@@ -5,10 +5,15 @@
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 
 # =============================================================================
-# RMTwin SHACL Constraints v1.0
+# RMTwin SHACL Constraints v2.0 (Simplified)
 # =============================================================================
-# 本文件定义了数字孪生配置的语义约束
-# 用于验证优化输出的配置是否符合工程语义规则
+# 
+# 分层验证策略：
+# - SHACL: 负责配置完整性验证（结构约束）
+# - P1 Fast-Check: 负责语义兼容性验证（运行时规则）
+# 
+# 这种分层设计避免了在 SHACL 中使用复杂的 SPARQL 约束，
+# 同时保持了形式化验证的可追溯性。
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -19,7 +24,7 @@ rdtco:ConfigurationCompletenessShape
     a sh:NodeShape ;
     sh:targetClass rdtco:DigitalTwinConfiguration ;
     sh:name "Configuration Completeness" ;
-    sh:description "A valid configuration must have all required components." ;
+    sh:description "A valid DT configuration must have all required components." ;
     
     # 必须有且仅有一个传感器
     sh:property [
@@ -28,6 +33,7 @@ rdtco:ConfigurationCompletenessShape
         sh:maxCount 1 ;
         sh:name "Sensor requirement" ;
         sh:message "Configuration must have exactly one sensor." ;
+        sh:severity sh:Violation ;
     ] ;
     
     # 必须有且仅有一个算法
@@ -37,6 +43,7 @@ rdtco:ConfigurationCompletenessShape
         sh:maxCount 1 ;
         sh:name "Algorithm requirement" ;
         sh:message "Configuration must have exactly one algorithm." ;
+        sh:severity sh:Violation ;
     ] ;
     
     # 必须有且仅有一个部署方式
@@ -46,147 +53,31 @@ rdtco:ConfigurationCompletenessShape
         sh:maxCount 1 ;
         sh:name "Deployment requirement" ;
         sh:message "Configuration must have exactly one deployment." ;
+        sh:severity sh:Violation ;
     ] ;
     
     # 必须有存储组件
     sh:property [
         sh:path rdtco:hasStorage ;
         sh:minCount 1 ;
+        sh:maxCount 1 ;
         sh:name "Storage requirement" ;
-        sh:message "Configuration must have at least one storage component." ;
+        sh:message "Configuration must have exactly one storage component." ;
+        sh:severity sh:Violation ;
     ] ;
     
     # 必须有通信组件
     sh:property [
         sh:path rdtco:hasCommunication ;
         sh:minCount 1 ;
+        sh:maxCount 1 ;
         sh:name "Communication requirement" ;
-        sh:message "Configuration must have at least one communication component." ;
+        sh:message "Configuration must have exactly one communication component." ;
+        sh:severity sh:Violation ;
     ] .
 
 # -----------------------------------------------------------------------------
-# Shape 2: GPU算法与部署兼容性约束
-# GPU需求算法不能部署在无GPU能力的环境
-# -----------------------------------------------------------------------------
-rdtco:GPUDeploymentCompatibilityShape
-    a sh:NodeShape ;
-    sh:targetClass rdtco:DigitalTwinConfiguration ;
-    sh:name "GPU-Deployment Compatibility" ;
-    sh:description "GPU-required algorithms must be deployed on GPU-capable infrastructure." ;
-    
-    sh:sparql [
-        a sh:SPARQLConstraint ;
-        sh:message "Algorithm requires GPU but deployment does not support GPU (OnPremise without GPU capability)." ;
-        sh:prefixes rdtco: ;
-        sh:select """
-            PREFIX rdtco: <http://www.semanticweb.org/rmtwin/ontologies/rdtco#>
-            SELECT $this ?algo ?dep ?hwReq
-            WHERE {
-                $this rdtco:hasAlgorithm ?algo ;
-                      rdtco:hasDeployment ?dep .
-                ?algo rdtco:hasHardwareRequirement ?hwReq .
-                FILTER( ?hwReq IN ("Standard_GPU", "HighEnd_GPU") )
-                FILTER( CONTAINS(LCASE(STR(?dep)), "onpremise") && 
-                        !CONTAINS(LCASE(STR(?dep)), "gpu") )
-            }
-        """ ;
-    ] .
-
-# -----------------------------------------------------------------------------
-# Shape 3: 传感器-通信兼容性约束
-# IoT/FOS传感器不应使用V2X-DSRC通信
-# -----------------------------------------------------------------------------
-rdtco:SensorCommunicationCompatibilityShape
-    a sh:NodeShape ;
-    sh:targetClass rdtco:DigitalTwinConfiguration ;
-    sh:name "Sensor-Communication Compatibility" ;
-    sh:description "Fixed sensors (IoT/FOS) should not use vehicle-based communication (V2X/DSRC)." ;
-    
-    sh:sparql [
-        a sh:SPARQLConstraint ;
-        sh:message "IoT/FOS sensor is incompatible with V2X/DSRC communication by design." ;
-        sh:prefixes rdtco: ;
-        sh:select """
-            PREFIX rdtco: <http://www.semanticweb.org/rmtwin/ontologies/rdtco#>
-            SELECT $this ?sensor ?comm
-            WHERE {
-                $this rdtco:hasSensor ?sensor ;
-                      rdtco:hasCommunication ?comm .
-                FILTER( CONTAINS(LCASE(STR(?sensor)), "iot") || 
-                        CONTAINS(LCASE(STR(?sensor)), "fos") ||
-                        CONTAINS(LCASE(STR(?sensor)), "fiber") )
-                FILTER( CONTAINS(LCASE(STR(?comm)), "v2x") || 
-                        CONTAINS(LCASE(STR(?comm)), "dsrc") )
-            }
-        """ ;
-    ] .
-
-# -----------------------------------------------------------------------------
-# Shape 4: 深度学习算法资源约束
-# DL算法需要足够的计算资源
-# -----------------------------------------------------------------------------
-rdtco:DLAlgorithmResourceShape
-    a sh:NodeShape ;
-    sh:targetClass rdtco:DigitalTwinConfiguration ;
-    sh:name "DL Algorithm Resource Requirement" ;
-    sh:description "Deep learning algorithms require adequate computational resources." ;
-    
-    sh:sparql [
-        a sh:SPARQLConstraint ;
-        sh:message "Deep learning algorithm requires Cloud or Edge deployment with GPU support." ;
-        sh:prefixes rdtco: ;
-        sh:select """
-            PREFIX rdtco: <http://www.semanticweb.org/rmtwin/ontologies/rdtco#>
-            SELECT $this ?algo ?dep
-            WHERE {
-                $this rdtco:hasAlgorithm ?algo ;
-                      rdtco:hasDeployment ?dep .
-                FILTER( CONTAINS(UCASE(STR(?algo)), "DL_") || 
-                        CONTAINS(UCASE(STR(?algo)), "YOLO") ||
-                        CONTAINS(UCASE(STR(?algo)), "UNET") ||
-                        CONTAINS(UCASE(STR(?algo)), "MASK") ||
-                        CONTAINS(UCASE(STR(?algo)), "EFFICIENT") )
-                FILTER( !CONTAINS(LCASE(STR(?dep)), "cloud") && 
-                        !CONTAINS(LCASE(STR(?dep)), "edge") &&
-                        !CONTAINS(LCASE(STR(?dep)), "gpu") )
-            }
-        """ ;
-    ] .
-
-# -----------------------------------------------------------------------------
-# Shape 5: 移动传感器部署约束
-# 车载/无人机传感器需要适当的通信基础设施
-# -----------------------------------------------------------------------------
-rdtco:MobileSensorDeploymentShape
-    a sh:NodeShape ;
-    sh:targetClass rdtco:DigitalTwinConfiguration ;
-    sh:name "Mobile Sensor Deployment" ;
-    sh:description "Mobile sensors require appropriate communication infrastructure." ;
-    
-    sh:sparql [
-        a sh:SPARQLConstraint ;
-        sh:message "Vehicle/UAV sensor requires mobile communication (Cellular/5G/V2X), not fixed-line only." ;
-        sh:prefixes rdtco: ;
-        sh:select """
-            PREFIX rdtco: <http://www.semanticweb.org/rmtwin/ontologies/rdtco#>
-            SELECT $this ?sensor ?comm
-            WHERE {
-                $this rdtco:hasSensor ?sensor ;
-                      rdtco:hasCommunication ?comm .
-                FILTER( CONTAINS(LCASE(STR(?sensor)), "vehicle") || 
-                        CONTAINS(LCASE(STR(?sensor)), "uav") ||
-                        CONTAINS(LCASE(STR(?sensor)), "drone") ||
-                        CONTAINS(LCASE(STR(?sensor)), "mobile") )
-                FILTER( CONTAINS(LCASE(STR(?comm)), "fiber") && 
-                        !CONTAINS(LCASE(STR(?comm)), "cellular") &&
-                        !CONTAINS(LCASE(STR(?comm)), "5g") &&
-                        !CONTAINS(LCASE(STR(?comm)), "v2x") )
-            }
-        """ ;
-    ] .
-
-# -----------------------------------------------------------------------------
-# Shape 6: 检测周期合理性约束
+# Shape 2: 检测周期范围约束
 # 检测周期必须在合理范围内
 # -----------------------------------------------------------------------------
 rdtco:InspectionCycleShape
@@ -201,21 +92,70 @@ rdtco:InspectionCycleShape
         sh:maxInclusive 365 ;
         sh:datatype xsd:integer ;
         sh:message "Inspection cycle must be between 1 and 365 days." ;
+        sh:severity sh:Warning ;
     ] .
 
 # -----------------------------------------------------------------------------
-# Shape 7: 数据速率合理性约束
-# 数据采集速率必须为正数
+# Shape 3: 数据速率范围约束
+# 数据采集速率必须为正数且在合理范围
 # -----------------------------------------------------------------------------
 rdtco:DataRateShape
     a sh:NodeShape ;
     sh:targetClass rdtco:DigitalTwinConfiguration ;
     sh:name "Data Rate Validity" ;
-    sh:description "Data rate must be a positive value." ;
+    sh:description "Data rate must be a positive value within operational range." ;
     
     sh:property [
         sh:path rdtco:hasDataRateHz ;
         sh:minExclusive 0 ;
+        sh:maxInclusive 1000 ;
         sh:datatype xsd:decimal ;
-        sh:message "Data rate must be positive." ;
+        sh:message "Data rate must be positive and <= 1000 Hz." ;
+        sh:severity sh:Warning ;
     ] .
+
+# -----------------------------------------------------------------------------
+# Shape 4: 成本合理性约束（可选）
+# 如果提供了成本信息，必须为正数
+# -----------------------------------------------------------------------------
+rdtco:CostValidityShape
+    a sh:NodeShape ;
+    sh:targetClass rdtco:DigitalTwinConfiguration ;
+    sh:name "Cost Validity" ;
+    sh:description "If cost is provided, it must be non-negative." ;
+    
+    sh:property [
+        sh:path rdtco:hasTotalCostUSD ;
+        sh:minInclusive 0 ;
+        sh:datatype xsd:decimal ;
+        sh:message "Total cost must be non-negative." ;
+        sh:severity sh:Warning ;
+    ] .
+
+# -----------------------------------------------------------------------------
+# Shape 5: 召回率范围约束（可选）
+# 如果提供了召回率，必须在 [0,1] 范围内
+# -----------------------------------------------------------------------------
+rdtco:RecallValidityShape
+    a sh:NodeShape ;
+    sh:targetClass rdtco:DigitalTwinConfiguration ;
+    sh:name "Recall Validity" ;
+    sh:description "If recall is provided, it must be between 0 and 1." ;
+    
+    sh:property [
+        sh:path rdtco:hasRecall ;
+        sh:minInclusive 0 ;
+        sh:maxInclusive 1 ;
+        sh:datatype xsd:decimal ;
+        sh:message "Recall must be between 0 and 1." ;
+        sh:severity sh:Warning ;
+    ] .
+
+# =============================================================================
+# 注意：语义兼容性约束（如GPU↔部署、IoT↔通信）
+# 由 evaluation.py 中的 _semantic_fast_check() 方法在运行时验证
+# 这种分层设计的优势：
+# 1. SHACL 验证速度快（只检查结构）
+# 2. Fast-Check 可以访问完整的组件属性
+# 3. 避免了在 SHACL 中维护复杂的 SPARQL 约束
+# =============================================================================
