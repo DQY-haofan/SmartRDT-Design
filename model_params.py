@@ -145,8 +145,8 @@ MODEL_PARAMS: Dict[str, Any] = {
     # z = a0 + a1*base_algo + a2*sensor_q + lod_bonus - a3*(tau - tau0)
     'recall_model': {
         'a0': -1.5,              # Intercept (shifts sigmoid center)
-        'a1': 0.5,               # Algorithm recall weight
-        'a2': 0.3,               # Sensor precision weight
+        'a1': 3,               # Algorithm recall weight
+        'a2': 2.5,               # Sensor precision weight
         'a3': 1.0,               # Detection threshold penalty weight (increased)
         'tau0': 0.5,             # Optimal detection threshold
         'lod_bonus': {           # LOD impact on recall
