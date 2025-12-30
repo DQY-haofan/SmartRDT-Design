@@ -1,6 +1,6 @@
 Mode,Validity,Δ,False Feasible
 Full Ontology,100.0%,+0.0pp,0
-No Type Inference,63.1%,-36.9pp,115
-No Compatibility,99.3%,-0.7pp,2
-Property ±30%,96.9%,-3.1pp,2
-Combined Degraded,75.7%,-24.3pp,4
+No Type Inference,63.5%,-36.5pp,123
+No Compatibility,99.2%,-0.8pp,2
+Property ±30%,94.9%,-5.1pp,4
+Combined Degraded,68.2%,-31.8pp,6
