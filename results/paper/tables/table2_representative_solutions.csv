@@ -1,5 +1,0 @@
-Scenario,Cost ($),Recall,Latency (s),Sensor,Algorithm
-Min Cost,"226,103",0.9600,66.1,Vehicle,Traditional
-Max Recall,"226,103",0.9600,66.1,Vehicle,Traditional
-Min Carbon,"4,901,785",0.9032,99.2,IoT,Traditional
-Min Latency,"4,644,983",0.9600,7.1,IoT,DL
