@@ -295,11 +295,24 @@ class EnhancedFitnessEvaluatorV3:
         # P1: 语义快速筛选 - 检查组件兼容性
         is_valid, reasons = self._semantic_fast_check(config)
         if not is_valid:
-            # 语义不合法：给强惩罚，确保被NSGA-III淘汰
-            big = 1e12
-            objectives = np.array([big, 1.0, big, big, big, big])
-            constraints = np.array([1e6, 1, 1e6, 1e6, 1e6])  # 全部违规
-            return objectives, constraints
+            # 语义不合法：给合理惩罚值（足够差但有限，避免污染优化器数值尺度）
+            pen_obj = np.array([
+                self.config.budget_cap_usd * 10,      # f1: cost很差
+                1.0,                                   # f2: 1-recall=1 即recall=0
+                self.config.max_latency_seconds * 10,  # f3: latency很差
+                1e6,                                   # f4: disruption很差
+                self.config.max_carbon_emissions_kgCO2e_year * 10,  # f5: carbon很差
+                1.0                                    # f6: 1/MTBF很差(低可靠性)
+            ], dtype=float)
+            # 约束违反值（g(x) <= 0为可行，正值表示违反）
+            pen_con = np.array([
+                self.config.max_latency_seconds * 5,   # latency违反
+                0.5,                                    # recall违反
+                self.config.budget_cap_usd * 5,        # budget违反
+                self.config.max_carbon_emissions_kgCO2e_year * 5,  # carbon违反
+                self.config.min_mtbf_hours             # MTBF违反
+            ], dtype=float)
+            return pen_obj, pen_con
         
         # Calculate all 6 objectives
         f1 = self._calculate_total_cost(config)
@@ -366,36 +379,28 @@ class EnhancedFitnessEvaluatorV3:
             )
         
         # =====================================================================
-        # 规则 2: GPU需求算法不能部署在明确无GPU的环境
-        # 理由: DL算法需要GPU加速，OnPremise通常指传统服务器无GPU
+        # 规则 2: 计算资源需求检查（合并GPU和DL算法需求）
+        # 理由: GPU/DL算法需要适当的计算基础设施
+        # 依据: hasHardwareRequirement属性 + 算法类型推断
         # =====================================================================
         hw_req = self._query_property(config['algorithm'], 'hasHardwareRequirement', 'CPU')
         hw_req_str = str(hw_req).upper()
         
-        if 'GPU' in hw_req_str and deploy_type == 'OnPremise':
-            # 检查是否是GPU版本的OnPremise
-            if 'GPU' not in deploy_str.upper():
-                reasons.append(
-                    f"Rule2: Algorithm requires {hw_req} but deployment is {deploy_type} "
-                    f"without GPU capability."
-                )
+        # 判断是否需要GPU（通过属性或算法名称推断）
+        needs_gpu = 'GPU' in hw_req_str or any(kw in algo_str.upper() for kw in 
+                    ['DL_', 'YOLO', 'UNET', 'MASK', 'EFFICIENT', 'SAM', 'RETINA', 'FASTER'])
+        
+        # 判断部署是否支持GPU
+        has_gpu_capability = any(kw in deploy_str.upper() for kw in ['GPU', 'CLOUD', 'EDGE'])
+        
+        if needs_gpu and deploy_type == 'OnPremise' and not has_gpu_capability:
+            reasons.append(
+                f"Rule2: Algorithm requires GPU/high-compute (hw_req={hw_req}) "
+                f"but deployment '{deploy_str.split('#')[-1]}' lacks GPU capability."
+            )
         
         # =====================================================================
-        # 规则 3: 深度学习算法需要Cloud或Edge部署
-        # 理由: DL算法计算密集，需要数据中心或边缘计算资源
-        # =====================================================================
-        is_dl_algo = any(kw in algo_str.upper() for kw in 
-                        ['DL_', 'YOLO', 'UNET', 'MASK', 'EFFICIENT', 'SAM', 'RETINA', 'FASTER'])
-        
-        if is_dl_algo and deploy_type == 'OnPremise':
-            if 'GPU' not in deploy_str.upper() and 'CLOUD' not in deploy_str.upper():
-                reasons.append(
-                    f"Rule3: Deep learning algorithm '{algo_str.split('#')[-1]}' "
-                    f"requires Cloud/Edge/GPU deployment, not plain OnPremise."
-                )
-        
-        # =====================================================================
-        # 规则 4: 移动传感器需要无线通信
+        # 规则 3: 移动传感器需要无线通信
         # 理由: 车载/无人机传感器不能只用光纤通信
         # =====================================================================
         is_mobile_sensor = sensor_type in ['MMS', 'UAV', 'Vehicle', 'Handheld']
@@ -405,7 +410,7 @@ class EnhancedFitnessEvaluatorV3:
         
         if is_mobile_sensor and is_fiber_only:
             reasons.append(
-                f"Rule4: Mobile sensor {sensor_type} requires wireless communication, "
+                f"Rule3: Mobile sensor {sensor_type} requires wireless communication, "
                 f"not fiber-only connection."
             )
         

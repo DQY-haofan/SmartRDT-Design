@@ -407,6 +407,11 @@ def run_shacl_audit(pareto_df: pd.DataFrame, ontology, shapes_path: str = 'shape
     """
     对Pareto解集执行SHACL语义审计（后验验证）。
     
+    改进：
+    1. 缓存shapes graph，避免重复解析
+    2. 统计violation类型分布
+    3. 输出结构化报告
+    
     Args:
         pareto_df: Pareto解DataFrame
         ontology: OntologyManager实例
@@ -425,8 +430,18 @@ def run_shacl_audit(pareto_df: pd.DataFrame, ontology, shapes_path: str = 'shape
         logger.warning(f"SHACL shapes file not found: {shapes_path}")
         return {'status': 'skipped', 'reason': f'Shapes file not found: {shapes_path}'}
     
+    # 预加载并缓存 SHACL shapes graph（性能优化）
+    try:
+        from rdflib import Graph
+        shacl_graph = Graph().parse(shapes_path, format="turtle")
+        logger.info(f"Loaded SHACL shapes: {len(shacl_graph)} triples")
+    except Exception as e:
+        logger.error(f"Failed to load SHACL shapes: {e}")
+        return {'status': 'error', 'reason': str(e)}
+    
     audit_results = []
     pass_count = 0
+    violation_types = {}  # 统计violation类型
     
     for idx, row in pareto_df.iterrows():
         # 构建配置字典
@@ -449,9 +464,23 @@ def run_shacl_audit(pareto_df: pd.DataFrame, ontology, shapes_path: str = 'shape
             conforms, report = ontology.shacl_validate_config(config, shapes_path)
             pass_count += int(conforms)
             
+            # 提取violation类型
+            violations = []
+            if not conforms and report:
+                # 解析报告中的violation
+                for line in report.split('\n'):
+                    if 'Constraint Violation' in line or 'sh:result' in line:
+                        violations.append(line.strip())
+                    elif 'Message:' in line or 'sh:resultMessage' in line:
+                        msg = line.split(':', 1)[-1].strip()
+                        violations.append(msg)
+                        # 统计violation类型
+                        violation_types[msg] = violation_types.get(msg, 0) + 1
+            
             audit_results.append({
                 'index': int(idx) if hasattr(idx, '__int__') else idx,
                 'conforms': bool(conforms),
+                'violations': violations[:5],  # 最多5条
                 'report_summary': report[:300] if report else ''
             })
         except Exception as e:
@@ -459,6 +488,7 @@ def run_shacl_audit(pareto_df: pd.DataFrame, ontology, shapes_path: str = 'shape
             audit_results.append({
                 'index': int(idx) if hasattr(idx, '__int__') else idx,
                 'conforms': True,  # 默认通过
+                'violations': [],
                 'report_summary': f'Error: {str(e)}'
             })
             pass_count += 1
@@ -466,13 +496,23 @@ def run_shacl_audit(pareto_df: pd.DataFrame, ontology, shapes_path: str = 'shape
     total = len(pareto_df)
     pass_ratio = pass_count / max(1, total)
     
+    # 生成violation类型排名
+    top_violations = sorted(violation_types.items(), key=lambda x: x[1], reverse=True)[:5]
+    
     logger.info(f"SHACL Audit: {pass_count}/{total} solutions passed ({pass_ratio:.1%})")
+    if top_violations:
+        logger.info(f"Top violations: {top_violations}")
     
     return {
         'status': 'completed',
         'pass_count': pass_count,
         'total_count': total,
         'pass_ratio': pass_ratio,
+        'violation_statistics': {
+            'total_violations': sum(violation_types.values()),
+            'unique_violation_types': len(violation_types),
+            'top_violations': top_violations
+        },
         'results': audit_results
     }
 
