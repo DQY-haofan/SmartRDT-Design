@@ -145,9 +145,9 @@ MODEL_PARAMS: Dict[str, Any] = {
     # z = a0 + a1*base_algo + a2*sensor_q + lod_bonus - a3*(tau - tau0)
     'recall_model': {
         'a0': -1.5,              # Intercept (shifts sigmoid center)
-        'a1': 3.0,               # Algorithm recall weight
-        'a2': 2.5,               # Sensor precision weight
-        'a3': 3.0,               # Detection threshold penalty weight (increased)
+        'a1': 0.5,               # Algorithm recall weight
+        'a2': 0.3,               # Sensor precision weight
+        'a3': 1.0,               # Detection threshold penalty weight (increased)
         'tau0': 0.5,             # Optimal detection threshold
         'lod_bonus': {           # LOD impact on recall
             'Micro': 0.6,        # High detail → better recall
@@ -156,8 +156,8 @@ MODEL_PARAMS: Dict[str, Any] = {
         },
         'data_rate_bonus_factor': 0.005,   # Per Hz above base_rate
         'base_data_rate': 50.0,            # Hz, baseline data rate
-        'max_recall': 0.96,      # Practical ceiling
-        'min_recall': 0.45       # Practical floor
+        'max_recall': 0.99,      # Practical ceiling
+        'min_recall': 0.6       # Practical floor
     },
     
     # False positive penalty coefficient
