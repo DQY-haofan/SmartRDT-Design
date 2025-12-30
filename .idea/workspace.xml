@@ -5,37 +5,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="6bd56078-6729-4b9c-95bb-0d85200829f3" name="更改" comment="">
-      <change beforePath="$PROJECT_DIR$/results/paper/figures/fig1_pareto_front.pdf" beforeDir="false" afterPath="$PROJECT_DIR$/results/paper/figures/fig1_pareto_front.pdf" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/results/paper/figures/fig1_pareto_front.png" beforeDir="false" afterPath="$PROJECT_DIR$/results/paper/figures/fig1_pareto_front.png" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/results/paper/figures/fig2_decision_matrix.pdf" beforeDir="false" afterPath="$PROJECT_DIR$/results/paper/figures/fig2_decision_matrix.pdf" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/results/paper/figures/fig2_decision_matrix.png" beforeDir="false" afterPath="$PROJECT_DIR$/results/paper/figures/fig2_decision_matrix.png" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/results/paper/figures/fig3_algorithm_comparison.pdf" beforeDir="false" afterPath="$PROJECT_DIR$/results/paper/figures/fig3_algorithm_comparison.pdf" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/results/paper/figures/fig3_algorithm_comparison.png" beforeDir="false" afterPath="$PROJECT_DIR$/results/paper/figures/fig3_algorithm_comparison.png" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/results/paper/figures/fig4_cost_structure.pdf" beforeDir="false" afterPath="$PROJECT_DIR$/results/paper/figures/fig4_cost_structure.pdf" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/results/paper/figures/fig4_cost_structure.png" beforeDir="false" afterPath="$PROJECT_DIR$/results/paper/figures/fig4_cost_structure.png" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/results/paper/figures/fig5_discrete_distributions.pdf" beforeDir="false" afterPath="$PROJECT_DIR$/results/paper/figures/fig5_discrete_distributions.pdf" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/results/paper/figures/fig5_discrete_distributions.png" beforeDir="false" afterPath="$PROJECT_DIR$/results/paper/figures/fig5_discrete_distributions.png" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/results/paper/figures/fig6_technology_dominance.pdf" beforeDir="false" afterPath="$PROJECT_DIR$/results/paper/figures/fig6_technology_dominance.pdf" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/results/paper/figures/fig6_technology_dominance.png" beforeDir="false" afterPath="$PROJECT_DIR$/results/paper/figures/fig6_technology_dominance.png" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/results/paper/figures/fig7_baseline_comparison.pdf" beforeDir="false" afterPath="$PROJECT_DIR$/results/paper/figures/fig7_baseline_comparison.pdf" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/results/paper/figures/fig7_baseline_comparison.png" beforeDir="false" afterPath="$PROJECT_DIR$/results/paper/figures/fig7_baseline_comparison.png" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/results/paper/figures/fig8_convergence.pdf" beforeDir="false" afterPath="$PROJECT_DIR$/results/paper/figures/fig8_convergence.pdf" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/results/paper/figures/fig8_convergence.png" beforeDir="false" afterPath="$PROJECT_DIR$/results/paper/figures/fig8_convergence.png" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/results/paper/figures/fig9_ablation.pdf" beforeDir="false" afterPath="$PROJECT_DIR$/results/paper/figures/fig9_ablation.pdf" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/results/paper/figures/fig9_ablation.png" beforeDir="false" afterPath="$PROJECT_DIR$/results/paper/figures/fig9_ablation.png" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/results/paper/figures/figS1_pairwise.pdf" beforeDir="false" afterPath="$PROJECT_DIR$/results/paper/figures/figS1_pairwise.pdf" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/results/paper/figures/figS1_pairwise.png" beforeDir="false" afterPath="$PROJECT_DIR$/results/paper/figures/figS1_pairwise.png" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/results/paper/figures/figS2_sensitivity.pdf" beforeDir="false" afterPath="$PROJECT_DIR$/results/paper/figures/figS2_sensitivity.pdf" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/results/paper/figures/figS2_sensitivity.png" beforeDir="false" afterPath="$PROJECT_DIR$/results/paper/figures/figS2_sensitivity.png" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/results/paper/manifest.json" beforeDir="false" afterPath="$PROJECT_DIR$/results/paper/manifest.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/results/paper/tables/table1_method_comparison.csv" beforeDir="false" afterPath="$PROJECT_DIR$/results/paper/tables/table1_method_comparison.csv" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/results/paper/tables/table1_method_comparison.tex" beforeDir="false" afterPath="$PROJECT_DIR$/results/paper/tables/table1_method_comparison.tex" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/results/paper/tables/table2_representative_solutions.csv" beforeDir="false" afterPath="$PROJECT_DIR$/results/paper/tables/table2_representative_solutions.csv" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/results/paper/tables/table2_representative_solutions.tex" beforeDir="false" afterPath="$PROJECT_DIR$/results/paper/tables/table2_representative_solutions.tex" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/results/paper/tables/table3_statistical_tests.csv" beforeDir="false" afterPath="$PROJECT_DIR$/results/paper/tables/table3_statistical_tests.csv" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/results/paper/tables/table3_statistical_tests.tex" beforeDir="false" afterPath="$PROJECT_DIR$/results/paper/tables/table3_statistical_tests.tex" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/results/paper/tables/table4_ablation_summary.csv" beforeDir="false" afterPath="$PROJECT_DIR$/results/paper/tables/table4_ablation_summary.csv" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/results/paper/tables/table4_ablation_summary.tex" beforeDir="false" afterPath="$PROJECT_DIR$/results/paper/tables/table4_ablation_summary.tex" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

@@ -674,10 +674,10 @@ class EnhancedFitnessEvaluatorV3:
         # Sensor precision/quality
         sensor_precision = self._query_property(config['sensor'], 'hasPrecision', 0.7)
         if sensor_precision is None or sensor_precision == 0:
-            # Estimate from accuracy
-            accuracy_mm = self._query_property(config['sensor'], 'hasAccuracyRangeMM', 10)
-            sensor_precision = max(0.5, 1.0 - accuracy_mm / 50.0)
-        
+            # Estimate from accuracy (已经加载到本体)
+            accuracy_mm = self._query_property(config['sensor'], 'hasAccuracyRangeMM', 25)
+            sensor_precision = float(np.clip(1.0 - accuracy_mm / 150.0, 0.2, 0.98))
+
         # LOD bonus (geometric LOD)
         lod_bonus = rm['lod_bonus'].get(config['geo_lod'], 0.0)
         
