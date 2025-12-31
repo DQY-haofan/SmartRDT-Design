@@ -37,6 +37,7 @@ from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 from scipy import stats
 import warnings
+import seaborn as sns
 
 warnings.filterwarnings('ignore')
 
@@ -195,7 +196,7 @@ class CompleteVisualizer:
         """生成所有图表和表格"""
 
         print("\n" + "=" * 70)
-        print("RMTwin Visualization v7.0 (Publication-Ready)")
+        print("RMTwin Visualization v8.0 (Publication-Ready)")
         print("=" * 70)
 
         if baseline_dfs is None:
@@ -207,15 +208,15 @@ class CompleteVisualizer:
             baseline_dfs[name] = ensure_recall_column(baseline_dfs[name])
 
         # ===== 核心图表 =====
-        print("\n[1/5] Core figures (改进版)...")
-        self.fig1_pareto_scatter_6d(pareto_df, baseline_dfs)  # 改进: 6D散点图
+        print("\n[1/5] Core figures (v8改进版)...")
+        self.fig1_pareto_scatter_6d(pareto_df, baseline_dfs)  # v8: 动态图例
         self.fig2_decision_matrix(pareto_df)
-        self.fig3_3d_pareto(pareto_df)  # 新增: 3D可视化
-        self.fig4_parallel_coordinates(pareto_df)  # 新增: 平行坐标图
+        self.fig3_3d_pareto(pareto_df)
+        self.fig4_parallel_coordinates(pareto_df)
         self.fig5_cost_structure(pareto_df)
         self.fig6_discrete_distributions(pareto_df)
         self.fig7_technology_dominance(pareto_df, baseline_dfs)
-        self.fig8_baseline_comparison(pareto_df, baseline_dfs)
+        self.fig8_baseline_comparison(pareto_df, baseline_dfs)  # v8: 雷达图
         self.fig9_convergence(pareto_df, history_path)
 
         # ===== 消融图表 =====
@@ -229,14 +230,15 @@ class CompleteVisualizer:
         print("\n[3/5] Supplementary figures...")
         self.figS1_pairwise(pareto_df)
         self.figS2_sensitivity(pareto_df)
-        self.figS3_3d_multi_view(pareto_df)  # 新增: 多视角3D
+        self.figS3_3d_multi_view(pareto_df)
+        self.figS4_correlation_matrix(pareto_df)  # v8新增: 相关性矩阵
 
         # ===== 表格 =====
         print("\n[4/5] Tables...")
         self.table1_method_comparison(pareto_df, baseline_dfs)
         self.table2_representative_solutions(pareto_df)
         self.table3_statistical_tests(pareto_df, baseline_dfs)
-        self.table5_cost_analysis(pareto_df)  # 新增: 成本分析
+        self.table5_cost_analysis(pareto_df)
         if ablation_df is not None:
             self.table4_ablation_summary(ablation_df)
 
@@ -330,25 +332,20 @@ class CompleteVisualizer:
         ax.set_title(f'(a) Cost-Recall Trade-off (n={len(df)} Pareto Solutions)',
                      fontsize=12, fontweight='bold')
 
-        # 简化图例
-        legend_elements = [
-            Patch(facecolor=SENSOR_COLORS['Vehicle'], label='Vehicle'),
-            Patch(facecolor=SENSOR_COLORS['Camera'], label='Camera'),
-            Patch(facecolor=SENSOR_COLORS['IoT'], label='IoT'),
-            plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='gray',
-                       markersize=8, label='Traditional'),
-            plt.Line2D([0], [0], marker='s', color='w', markerfacecolor='gray',
-                       markersize=8, label='ML'),
-            plt.Line2D([0], [0], marker='^', color='w', markerfacecolor='gray',
-                       markersize=8, label='DL'),
-        ]
+        # v8: 动态生成图例 - 只显示实际存在的传感器和算法类型
+        legend_elements = []
+        # 传感器类型 (只添加数据中存在的)
+        for stype in df['sensor_cat'].unique():
+            if stype in SENSOR_COLORS:
+                legend_elements.append(Patch(facecolor=SENSOR_COLORS[stype], label=stype))
+        # 算法类型标记
+        for atype in ['Traditional', 'ML', 'DL']:
+            if atype in df['algo_cat'].values:
+                legend_elements.append(
+                    plt.Line2D([0], [0], marker=ALGO_MARKERS.get(atype, 'o'), color='w',
+                               markerfacecolor='gray', markersize=8, label=atype)
+                )
         ax.legend(handles=legend_elements, loc='lower right', fontsize=8, ncol=2)
-
-        # 添加注释
-        ax.annotate('Note: 6D Pareto solutions projected to 2D.\nSome solutions may appear dominated.',
-                    xy=(0.02, 0.02), xycoords='axes fraction',
-                    fontsize=8, fontstyle='italic', color='gray',
-                    bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.3))
         ax.grid(True, alpha=0.3)
 
         # ===== (b) 传感器类型分布 =====
@@ -755,50 +752,93 @@ class CompleteVisualizer:
         self._save_fig(fig, 'fig7_technology_dominance')
 
     def fig8_baseline_comparison(self, pareto_df: pd.DataFrame, baseline_dfs: Dict):
-        """Fig 8: Baseline对比"""
-        fig, ax = plt.subplots(figsize=(10, 6))
+        """
+        Fig 8: 代表性解雷达图 (v8改进)
 
-        methods = ['NSGA-III']
-        feasible_rates = [100.0]
-        min_costs = [pareto_df['f1_total_cost_USD'].min() / 1e6]
-        max_recalls = [pareto_df['detection_recall'].max() * 100]
+        替换原baseline comparison为雷达图，展示4个代表性解的多目标性能对比
+        """
+        df = pareto_df.copy()
 
-        for name, df in baseline_dfs.items():
-            if df is not None and len(df) > 0:
-                feasible = df[df['is_feasible']] if 'is_feasible' in df.columns else df
-                methods.append(name.title())
-                feasible_rates.append(len(feasible) / len(df) * 100)
-                if len(feasible) > 0:
-                    min_costs.append(feasible['f1_total_cost_USD'].min() / 1e6)
-                    max_recalls.append(feasible['detection_recall'].max() * 100)
+        # 目标列
+        objectives = ['f1_total_cost_USD', 'detection_recall', 'f3_latency_seconds',
+                      'f4_traffic_disruption_hours', 'f5_carbon_emissions_kgCO2e_year']
+        objectives = [c for c in objectives if c in df.columns]
+        labels = ['Cost', 'Recall', 'Latency', 'Disruption', 'Carbon'][:len(objectives)]
+
+        if len(objectives) < 3:
+            print("   ⚠ Skipping fig8 (insufficient objectives)")
+            return
+
+        # 归一化到0-1 (1=最好)
+        normalized = df[objectives].copy()
+        for col in objectives:
+            min_val, max_val = normalized[col].min(), normalized[col].max()
+            if max_val > min_val:
+                if col == 'detection_recall':
+                    # Recall: 高=好
+                    normalized[col] = (normalized[col] - min_val) / (max_val - min_val)
                 else:
-                    min_costs.append(0)
-                    max_recalls.append(0)
+                    # 其他: 低=好, 反转
+                    normalized[col] = 1 - (normalized[col] - min_val) / (max_val - min_val)
 
-        x = np.arange(len(methods))
-        width = 0.25
+        # 选择代表性解
+        reps = select_representatives(df)
+        rep_names = {
+            'low_cost': 'Min Cost',
+            'high_recall': 'Max Recall',
+            'balanced': 'Balanced'
+        }
+        # 添加更多代表性解
+        if 'f3_latency_seconds' in df.columns:
+            reps['min_latency'] = df['f3_latency_seconds'].idxmin()
+            rep_names['min_latency'] = 'Min Latency'
+        if 'f5_carbon_emissions_kgCO2e_year' in df.columns:
+            reps['min_carbon'] = df['f5_carbon_emissions_kgCO2e_year'].idxmin()
+            rep_names['min_carbon'] = 'Min Carbon'
 
-        ax.bar(x - width, feasible_rates, width, label='Feasible Rate (%)', color=COLORS['nsga3'], alpha=0.7)
-        ax.bar(x, [c * 5 for c in min_costs], width, label='Min Cost ($M × 5)', color=COLORS['weighted'], alpha=0.7)
-        ax.bar(x + width, max_recalls, width, label='Max Recall (%)', color=COLORS['grid'], alpha=0.7)
+        rep_colors = {
+            'low_cost': '#E74C3C',  # 红
+            'high_recall': '#27AE60',  # 绿
+            'min_latency': '#3498DB',  # 蓝
+            'min_carbon': '#9B59B6',  # 紫
+            'balanced': '#F39C12'  # 橙
+        }
 
-        ax.set_xticks(x)
-        ax.set_xticklabels(methods, rotation=30, ha='right')
-        ax.set_ylabel('Scaled Value')
-        ax.set_title('Baseline Comparison', fontsize=14, fontweight='bold')
-        ax.legend(loc='upper right')
-        ax.grid(axis='y', alpha=0.3)
+        # 雷达图
+        angles = np.linspace(0, 2 * np.pi, len(labels), endpoint=False).tolist()
+        angles += angles[:1]  # 闭合
+
+        fig, ax = plt.subplots(figsize=(10, 8), subplot_kw=dict(polar=True))
+
+        for rep_key, idx in reps.items():
+            if idx in normalized.index:
+                values = normalized.loc[idx].values.tolist()
+                values += values[:1]  # 闭合
+                ax.plot(angles, values, 'o-', linewidth=2.5,
+                        label=rep_names.get(rep_key, rep_key),
+                        color=rep_colors.get(rep_key, 'gray'),
+                        markersize=6)
+                ax.fill(angles, values, alpha=0.1, color=rep_colors.get(rep_key, 'gray'))
+
+        ax.set_xticks(angles[:-1])
+        ax.set_xticklabels(labels, fontsize=11, fontweight='bold')
+        ax.set_ylim(0, 1)
+        ax.set_title('Representative Solutions: Multi-Objective Performance',
+                     fontsize=14, fontweight='bold', pad=20)
+        ax.legend(loc='upper right', bbox_to_anchor=(1.35, 1.0), fontsize=10, frameon=True)
+        ax.grid(True, alpha=0.3)
 
         plt.tight_layout()
 
         # 保存数据
-        comparison_data = pd.DataFrame({
-            'method': methods,
-            'feasible_rate_pct': feasible_rates,
-            'min_cost_millions': min_costs,
-            'max_recall_pct': max_recalls
-        })
-        self._save_fig_data(comparison_data, 'fig8_baseline_comparison_data')
+        radar_data = []
+        for rep_key, idx in reps.items():
+            if idx in normalized.index:
+                row_data = {'representative': rep_names.get(rep_key, rep_key)}
+                for i, col in enumerate(objectives):
+                    row_data[labels[i]] = normalized.loc[idx, col]
+                radar_data.append(row_data)
+        self._save_fig_data(pd.DataFrame(radar_data), 'fig8_radar_data')
 
         self._save_fig(fig, 'fig8_baseline_comparison')
 
@@ -1070,6 +1110,44 @@ class CompleteVisualizer:
         plt.tight_layout()
         self._save_fig(fig, 'figS3_3d_multi_view')
 
+    def figS4_correlation_matrix(self, pareto_df: pd.DataFrame):
+        """
+        Fig S4: 目标相关性矩阵 (v8新增)
+
+        展示6个优化目标之间的相关性，帮助理解目标间的权衡关系
+        """
+        objectives = ['f1_total_cost_USD', 'detection_recall', 'f3_latency_seconds',
+                      'f4_traffic_disruption_hours', 'f5_carbon_emissions_kgCO2e_year']
+        objectives = [c for c in objectives if c in pareto_df.columns]
+        labels = ['Cost', 'Recall', 'Latency', 'Disruption', 'Carbon'][:len(objectives)]
+
+        if len(objectives) < 3:
+            print("   ⚠ Skipping figS4 (insufficient objectives)")
+            return
+
+        # 计算相关性矩阵
+        corr_matrix = pareto_df[objectives].corr()
+        corr_matrix.index = labels
+        corr_matrix.columns = labels
+
+        fig, ax = plt.subplots(figsize=(8, 6))
+
+        # 使用下三角遮罩
+        mask = np.triu(np.ones_like(corr_matrix, dtype=bool), k=1)
+
+        sns.heatmap(corr_matrix, mask=mask, annot=True, fmt='.2f', cmap='RdBu_r',
+                    center=0, square=True, linewidths=0.5, ax=ax,
+                    cbar_kws={'label': 'Correlation', 'shrink': 0.8},
+                    annot_kws={'fontsize': 11, 'fontweight': 'bold'})
+
+        ax.set_title('Objective Correlation Matrix', fontsize=14, fontweight='bold')
+
+        plt.tight_layout()
+
+        # 保存数据
+        self._save_fig_data(corr_matrix, 'figS4_correlation_data')
+        self._save_fig(fig, 'figS4_correlation_matrix')
+
     # =========================================================================
     # 表格
     # =========================================================================
@@ -1278,7 +1356,7 @@ class CompleteVisualizer:
             'actual_min': float(actual_min),
             'actual_max': float(actual_max),
             'min_ratio': float(actual_min / expected_min),
-            'range_reasonable': (actual_min >= expected_min * 0.5) and (actual_max <= expected_max * 2)
+            'range_reasonable': bool((actual_min >= expected_min * 0.5) and (actual_max <= expected_max * 2))
         }
 
         # 保存诊断报告
