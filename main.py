@@ -249,7 +249,7 @@ def run_baselines(
 
     try:
         runner = BaselineRunner(
-            ontology=ontology,
+            ontology_graph=ontology.g,
             config=config,
             seed=seed
         )
