@@ -55,8 +55,9 @@ class SolutionMapper:
     x[10]: inspection_cycle - Days between inspections (1-365)
     """
 
-    def __init__(self, ontology_graph: Graph):
+    def __init__(self, ontology_graph: Graph, config=None):
         self.g = ontology_graph
+        self.config = config  # v3.2: 添加config引用
         self._cache_components()
         self._decode_cache = {}
 
@@ -155,7 +156,9 @@ class SolutionMapper:
             'deployment': self.deployments[int(x[8] * len(self.deployments)) % len(self.deployments)],
             'crew_size': int(1 + x[9] * 9),  # 1-10
             # v3.2: 检查周期范围由min_inspections_per_year控制
-            'inspection_cycle': int(1 + x[10] * (365.0 / getattr(self.config, 'min_inspections_per_year', 4) - 1))
+            'inspection_cycle': int(
+                1 + x[10] * (365.0 / getattr(self.config, 'min_inspections_per_year', 4) - 1)) if self.config else int(
+                1 + x[10] * 90)
         }
 
         self._decode_cache[x_key] = config
@@ -173,7 +176,7 @@ class EnhancedFitnessEvaluatorV3:
     def __init__(self, ontology_graph: Graph, config):
         self.g = ontology_graph
         self.config = config
-        self.solution_mapper = SolutionMapper(ontology_graph)
+        self.solution_mapper = SolutionMapper(ontology_graph, config)  # v3.2: 传入config
 
         # Property cache for ontology queries
         self._property_cache = {}

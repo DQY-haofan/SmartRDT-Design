@@ -45,10 +45,8 @@ class ConfigManager:
     max_energy_kwh_year: float = 200_000  # 从50k增加到150k
     min_mtbf_hours: float = 1_000  # 从5000降低到2000（约3个月）
     max_carbon_emissions_kgCO2e_year: float = 300_000  # 增加到200k
-    # 检查周期约束 - v3.2: 使用min_inspections_per_year替代max_inspection_cycle_days
+    # v3.2: 检查周期约束 - 使用min_inspections_per_year
     min_inspections_per_year: int = 4  # 每年至少检查4次 → 最大周期91天
-    # max_inspection_cycle_days已废弃，保留仅供参考
-    # max_inspection_cycle_days: int = 180
 
     # 额外的运营参数
     apply_seasonal_adjustments: bool = True
