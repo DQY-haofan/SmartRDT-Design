@@ -526,6 +526,7 @@ class CompleteVisualizer:
     def fig4_parallel_coordinates(self, pareto_df: pd.DataFrame):
         """
         Fig 4: 平行坐标图 (展示6目标权衡)
+        v8改进: 高亮代表性解
         """
         df = pareto_df.copy()
         df['algo_cat'] = df['algorithm'].apply(classify_algorithm)
@@ -555,11 +556,27 @@ class CompleteVisualizer:
 
         x = np.arange(len(obj_cols))
 
-        # 按算法类型绘制
+        # 获取代表性解索引
+        reps = select_representatives(df)
+        rep_indices = set(reps.values())
+
+        # 先绘制普通解 (半透明)
         for idx, row in norm_data.iterrows():
-            algo_type = df.loc[idx, 'algo_cat']
-            ax.plot(x, row.values, color=ALGO_COLORS[algo_type],
-                    alpha=0.5, linewidth=1.5)
+            if idx not in rep_indices:
+                algo_type = df.loc[idx, 'algo_cat']
+                ax.plot(x, row.values, color=ALGO_COLORS[algo_type],
+                        alpha=0.35, linewidth=1.2)
+
+        # 再绘制代表性解 (加粗高亮)
+        rep_colors = {'low_cost': '#E74C3C', 'high_recall': '#27AE60', 'balanced': '#F39C12'}
+        rep_labels = {'low_cost': 'Min Cost', 'high_recall': 'Max Recall', 'balanced': 'Balanced'}
+        for rep_name, idx in reps.items():
+            if idx in norm_data.index:
+                ax.plot(x, norm_data.loc[idx].values,
+                        color=rep_colors.get(rep_name, 'black'),
+                        alpha=1.0, linewidth=3.5, linestyle='-',
+                        label=rep_labels.get(rep_name, rep_name),
+                        marker='o', markersize=8, zorder=10)
 
         ax.set_xticks(x)
         ax.set_xticklabels(obj_labels, fontsize=11)
@@ -569,10 +586,15 @@ class CompleteVisualizer:
         ax.set_ylim(-0.05, 1.05)
         ax.grid(True, alpha=0.3)
 
-        # 图例
-        legend_elements = [plt.Line2D([0], [0], color=ALGO_COLORS[a], linewidth=2, label=a)
+        # 图例 - 包含算法类型和代表性解
+        legend_elements = [plt.Line2D([0], [0], color=ALGO_COLORS[a], linewidth=2, alpha=0.5, label=a)
                            for a in ['Traditional', 'ML', 'DL']]
-        ax.legend(handles=legend_elements, loc='upper right', fontsize=10)
+        legend_elements.append(plt.Line2D([0], [0], color='white', linewidth=0, label=''))  # 分隔
+        for rep_name in ['low_cost', 'high_recall', 'balanced']:
+            if rep_name in reps:
+                legend_elements.append(plt.Line2D([0], [0], color=rep_colors[rep_name],
+                                                  linewidth=3, label=rep_labels[rep_name]))
+        ax.legend(handles=legend_elements, loc='upper right', fontsize=9, ncol=2)
 
         plt.tight_layout()
 
@@ -703,7 +725,7 @@ class CompleteVisualizer:
         self._save_fig(fig, 'fig6_discrete_distributions')
 
     def fig7_technology_dominance(self, pareto_df: pd.DataFrame, baseline_dfs: Dict):
-        """Fig 7: 技术组合分析"""
+        """Fig 7: 技术组合分析 (v8改进: 子图b展示算法类型性能对比)"""
         fig, axes = plt.subplots(1, 2, figsize=(12, 5))
 
         ax1 = axes[0]
@@ -717,34 +739,49 @@ class CompleteVisualizer:
             ax1.set_xlabel('Sensor Type')
             ax1.set_ylabel('Count')
             ax1.legend(title='Algorithm')
-            ax1.tick_params(axis='x', rotation=45)
+            ax1.tick_params(axis='x', rotation=0)
         ax1.set_title('(a) Sensor-Algorithm Combinations', fontweight='bold')
         ax1.grid(axis='y', alpha=0.3)
 
+        # v8改进: 子图(b)展示算法类型的平均成本和Recall
         ax2 = axes[1]
-        methods = ['NSGA-III']
-        trad_pcts = []
-
         if 'algorithm' in pareto_df.columns:
-            trad_pcts.append((pareto_df['algorithm'].apply(classify_algorithm) == 'Traditional').mean() * 100)
-        else:
-            trad_pcts.append(0)
+            df = pareto_df.copy()
+            df['algo_cat'] = df['algorithm'].apply(classify_algorithm)
 
-        for name, df in baseline_dfs.items():
-            if df is not None and 'algorithm' in df.columns and len(df) > 0:
-                feasible = df[df['is_feasible']] if 'is_feasible' in df.columns else df
-                if len(feasible) > 0:
-                    methods.append(name.title())
-                    trad_pcts.append((feasible['algorithm'].apply(classify_algorithm) == 'Traditional').mean() * 100)
+            # 计算各算法类型的平均指标
+            algo_stats = df.groupby('algo_cat').agg({
+                'f1_total_cost_USD': 'mean',
+                'detection_recall': 'mean'
+            }).reset_index()
 
-        ax2.bar(range(len(methods)), trad_pcts, color=COLORS['traditional'], edgecolor='black', alpha=0.7)
-        ax2.set_xticks(range(len(methods)))
-        ax2.set_xticklabels(methods, rotation=30, ha='right')
-        ax2.set_ylabel('Traditional Algorithm %')
-        ax2.set_ylim(0, 110)
-        for i, v in enumerate(trad_pcts):
-            ax2.text(i, v + 2, f'{v:.0f}%', ha='center', fontweight='bold')
-        ax2.set_title('(b) Traditional Algorithm Dominance', fontweight='bold')
+            x = np.arange(len(algo_stats))
+            width = 0.35
+
+            # 归一化成本到0-100范围便于比较
+            max_cost = algo_stats['f1_total_cost_USD'].max()
+            cost_normalized = algo_stats['f1_total_cost_USD'] / max_cost * 100
+            recall_pct = algo_stats['detection_recall'] * 100
+
+            colors_algo = [ALGO_COLORS.get(a, 'gray') for a in algo_stats['algo_cat']]
+
+            bars1 = ax2.bar(x - width / 2, cost_normalized, width, label='Avg Cost (normalized)',
+                            color=colors_algo, alpha=0.6, edgecolor='black')
+            bars2 = ax2.bar(x + width / 2, recall_pct, width, label='Avg Recall (%)',
+                            color=colors_algo, alpha=1.0, edgecolor='black', hatch='//')
+
+            ax2.set_xticks(x)
+            ax2.set_xticklabels(algo_stats['algo_cat'])
+            ax2.set_ylabel('Value (%)')
+            ax2.set_ylim(0, 110)
+            ax2.legend(loc='upper right', fontsize=9)
+
+            # 添加数值标签
+            for bar, val in zip(bars2, recall_pct):
+                ax2.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 1,
+                         f'{val:.1f}%', ha='center', fontsize=9, fontweight='bold')
+
+        ax2.set_title('(b) Algorithm Performance Comparison', fontweight='bold')
         ax2.grid(axis='y', alpha=0.3)
 
         plt.suptitle('Technology Analysis', fontsize=12, fontweight='bold')
