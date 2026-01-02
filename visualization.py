@@ -167,7 +167,7 @@ def calculate_hypervolume_2d(points: np.ndarray, ref_point: np.ndarray) -> float
         if y < prev_y:
             # 添加矩形面积
             if i > 0:
-                hv += (x - prev_x) * (prev_y - sorted_points[i-1, 1])
+                hv += (x - prev_x) * (prev_y - sorted_points[i - 1, 1])
             prev_y = y
         prev_x = x
 
@@ -186,7 +186,7 @@ def calculate_hypervolume_2d(points: np.ndarray, ref_point: np.ndarray) -> float
             if i == len(sorted_points) - 1:
                 width = ref_point[0] - x
             else:
-                width = sorted_points[i+1, 0] - x
+                width = sorted_points[i + 1, 0] - x
             height = prev_y - y
             hv += width * height
             prev_y = y
@@ -542,7 +542,8 @@ class CompleteVisualizer:
                 'Recall': f"{pareto_df.loc[idx, 'detection_recall']:.4f}",
                 'Latency (s)': f"{pareto_df.loc[idx, 'f3_latency_seconds']:.1f}" if 'f3_latency_seconds' in pareto_df.columns else '-',
                 'Sensor': classify_sensor(pareto_df.loc[idx, 'sensor']) if 'sensor' in pareto_df.columns else '-',
-                'Algorithm': classify_algorithm(pareto_df.loc[idx, 'algorithm']) if 'algorithm' in pareto_df.columns else '-'
+                'Algorithm': classify_algorithm(
+                    pareto_df.loc[idx, 'algorithm']) if 'algorithm' in pareto_df.columns else '-'
             }
             rows.append(row)
 
@@ -603,7 +604,7 @@ class CompleteVisualizer:
             delta = (row['validity_rate'] - baseline_validity) * 100
             rows.append({
                 'Mode': row[name_col],
-                'Validity': f"{row['validity_rate']*100:.1f}%",
+                'Validity': f"{row['validity_rate'] * 100:.1f}%",
                 'Δ': f"{delta:+.1f}pp",
                 'False Feasible': int(row.get('n_false_feasible', 0))
             })
@@ -951,9 +952,9 @@ class CompleteVisualizer:
 
             colors_algo = [ALGO_COLORS.get(a, 'gray') for a in algo_stats['algo_cat']]
 
-            ax2.bar(x - width/2, cost_normalized, width, label='Avg Cost (norm)',
+            ax2.bar(x - width / 2, cost_normalized, width, label='Avg Cost (norm)',
                     color=colors_algo, alpha=0.6, edgecolor='black')
-            ax2.bar(x + width/2, recall_pct, width, label='Avg Recall (%)',
+            ax2.bar(x + width / 2, recall_pct, width, label='Avg Recall (%)',
                     color=colors_algo, alpha=1.0, edgecolor='black', hatch='//')
 
             ax2.set_xticks(x)
@@ -963,7 +964,7 @@ class CompleteVisualizer:
             ax2.legend(loc='upper right', fontsize=9)
 
             for i, val in enumerate(recall_pct):
-                ax2.text(x[i] + width/2, val + 1, f'{val:.1f}%', ha='center', fontsize=9, fontweight='bold')
+                ax2.text(x[i] + width / 2, val + 1, f'{val:.1f}%', ha='center', fontsize=9, fontweight='bold')
 
         ax2.set_title('(b) Algorithm Performance', fontweight='bold')
         ax2.grid(axis='y', alpha=0.3)
@@ -1029,11 +1030,11 @@ class CompleteVisualizer:
 
             max_hv = max(hvs) if hvs else 1
             for i, (bar, hv) in enumerate(zip(bars, hvs)):
-                ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max_hv*0.02,
+                ax2.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + max_hv * 0.02,
                          f'{hv:.3f}', ha='center', fontsize=10, fontweight='bold')
                 if methods[i] != 'NSGA-III' and hv_results.get('NSGA-III', 0) > 0:
                     ratio = hv / hv_results['NSGA-III'] * 100
-                    ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height()/2,
+                    ax2.text(bar.get_x() + bar.get_width() / 2, bar.get_height() / 2,
                              f'{ratio:.0f}%', ha='center', fontsize=9, color='white', fontweight='bold')
 
             ax2.grid(axis='y', alpha=0.3)
@@ -1069,7 +1070,7 @@ class CompleteVisualizer:
         ax1.set_ylabel('Feasible Solutions', fontsize=11, fontweight='bold')
         ax1.set_title('(a) Number of Feasible Solutions', fontsize=12, fontweight='bold')
         for i, bar in enumerate(bars1):
-            ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(feasibles)*0.02,
+            ax1.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + max(feasibles) * 0.02,
                      str(feasibles[i]), ha='center', fontsize=10, fontweight='bold')
         ax1.grid(axis='y', alpha=0.3)
 
@@ -1082,7 +1083,7 @@ class CompleteVisualizer:
         ax2.set_title('(b) Feasibility Rate', fontsize=12, fontweight='bold')
         ax2.set_ylim(0, 110)
         for i, bar in enumerate(bars2):
-            ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 2,
+            ax2.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 2,
                      f'{rates[i]:.1f}%', ha='center', fontsize=10, fontweight='bold')
         ax2.axhline(y=100, color='green', linestyle='--', alpha=0.5, linewidth=1)
         ax2.grid(axis='y', alpha=0.3)
@@ -1320,7 +1321,7 @@ class CompleteVisualizer:
 
         ax2.bar(x, false_feas, color=colors, edgecolor='black', linewidth=0.5, width=0.6)
         for i, v in enumerate(false_feas):
-            ax2.text(i, v + max(false_feas)*0.02 + 1, f'{int(v)}', ha='center', fontsize=12, fontweight='bold')
+            ax2.text(i, v + max(false_feas) * 0.02 + 1, f'{int(v)}', ha='center', fontsize=12, fontweight='bold')
 
         ax2.set_ylabel('False Feasible Count', fontsize=12)
         ax2.set_title('(b) Invalid Configs Wrongly Accepted', fontsize=12, fontweight='bold')
@@ -1346,7 +1347,7 @@ class CompleteVisualizer:
             return
 
         n = min(len(objectives), 3)
-        fig, axes = plt.subplots(1, n, figsize=(4*n, 4))
+        fig, axes = plt.subplots(1, n, figsize=(4 * n, 4))
         if n == 1:
             axes = [axes]
 
@@ -1511,13 +1512,25 @@ def main():
         str(Path(args.pareto).parent.parent / 'baselines'),
     ]
 
+    # 排除这些文件（它们是汇总表，不是原始数据）
+    exclude_patterns = ['summary', 'comparison', 'report', 'stats']
+
     for search_dir in search_dirs:
         if search_dir and Path(search_dir).exists():
             for f in Path(search_dir).glob('baseline_*.csv'):
                 name = f.stem.replace('baseline_', '')
+                # 跳过汇总文件
+                if any(pat in name.lower() for pat in exclude_patterns):
+                    print(f"Skipping summary file: {f.name}")
+                    continue
                 if name not in baseline_dfs:
-                    baseline_dfs[name] = pd.read_csv(f)
-                    print(f"Loaded baseline '{name}': {len(baseline_dfs[name])} solutions")
+                    df = pd.read_csv(f)
+                    # 验证是否包含必要的列
+                    if 'f1_total_cost_USD' in df.columns or 'is_feasible' in df.columns:
+                        baseline_dfs[name] = df
+                        print(f"Loaded baseline '{name}': {len(df)} solutions")
+                    else:
+                        print(f"Skipping '{name}': missing required columns")
 
     # 加载消融
     ablation_df = None
